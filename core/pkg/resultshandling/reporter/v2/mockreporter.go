@@ -1,0 +1,51 @@
+package v2
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/armosec/kubescape/v2/core/cautils"
+	"github.com/armosec/kubescape/v2/core/cautils/getter"
+)
+
+const NO_SUBMIT_QUERY = "utm_source=GitHub&utm_medium=CLI&utm_campaign=no_submit"
+
+type ReportMock struct {
+	query   string
+	message string
+}
+
+func NewReportMock(query, message string) *ReportMock {
+	return &ReportMock{
+		query:   query,
+		message: message,
+	}
+}
+func (reportMock *ReportMock) Submit(opaSessionObj *cautils.OPASessionObj) error {
+	return nil
+}
+
+func (reportMock *ReportMock) SetCustomerGUID(customerGUID string) {
+}
+
+func (reportMock *ReportMock) SetClusterName(clusterName string) {
+}
+
+func (reportMock *ReportMock) GetURL() string {
+	u := fmt.Sprintf("https://%s/account/sign-up", getter.GetArmoAPIConnector().GetFrontendURL())
+	if reportMock.query != "" {
+		u += fmt.Sprintf("?%s", reportMock.query)
+	}
+	return u
+}
+
+func (reportMock *ReportMock) DisplayReportURL() {
+
+	sep := "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+	message := sep + "\n"
+	message += "Scan results have not been submitted: " + reportMock.message + "\n"
+	message += "Sign up for free: "
+	message += reportMock.GetURL() + "\n"
+	message += sep + "\n"
+	cautils.InfoTextDisplay(os.Stderr, fmt.Sprintf("\n%s\n", message))
+}

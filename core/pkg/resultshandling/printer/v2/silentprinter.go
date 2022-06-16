@@ -1,0 +1,11 @@
+package v2
+
+import (
+	"github.com/armosec/kubescape/v2/core/cautils"
+)
+
+type SilentPrinter struct {
+}
+
+func (silentPrinter *SilentPrinter) ActionPrint(opaSessionObj *cautils.OPASessionObj) {
+}

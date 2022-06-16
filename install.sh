@@ -1,44 +1,59 @@
 #!/bin/bash
 set -e
 
-echo "Installing Kubescape..."
+echo -e "\033[0;36mInstalling Kubescape..."
 echo
  
 BASE_DIR=~/.kubescape
 KUBESCAPE_EXEC=kubescape
+KUBESCAPE_ZIP=kubescape.zip
 
 osName=$(uname -s)
 if [[ $osName == *"MINGW"* ]]; then
-    osName=windows-latest
+    osName=windows
 elif [[ $osName == *"Darwin"* ]]; then
-    osName=macos-latest
+    osName=macos
 else
-    osName=ubuntu-latest
+    osName=ubuntu
 fi
-
-GITHUB_OWNER=armosec
-
-DOWNLOAD_URL=$(curl --silent "https://api.github.com/repos/$GITHUB_OWNER/kubescape/releases/latest" | grep -o "browser_download_url.*${osName}.*")
-DOWNLOAD_URL=${DOWNLOAD_URL//\"}
-DOWNLOAD_URL=${DOWNLOAD_URL/browser_download_url: /}
 
 mkdir -p $BASE_DIR 
 
 OUTPUT=$BASE_DIR/$KUBESCAPE_EXEC
-
+DOWNLOAD_URL="https://github.com/armosec/kubescape/releases/latest/download/kubescape-${osName}-latest"
 curl --progress-bar -L $DOWNLOAD_URL -o $OUTPUT
-echo -e "\033[32m[V] Downloaded Kubescape"
 
-# Ping download counter
-curl --silent https://us-central1-elated-pottery-310110.cloudfunctions.net/kubescape-download-counter -o /dev/null
- 
-chmod +x $OUTPUT || sudo chmod +x $OUTPUT
-rm -f /usr/local/bin/$KUBESCAPE_EXEC || sudo rm -f /usr/local/bin/$KUBESCAPE_EXEC
-cp $OUTPUT /usr/local/bin || sudo cp $OUTPUT /usr/local/bin
+# Checking if SUDO needed/exists 
+SUDO=
+if [ "$(id -u)" -ne 0 ] && [ -n "$(which sudo)" ]; then
+    SUDO=sudo
+fi
+
+
+# Find install dir
+install_dir=/usr/local/bin #default
+for pdir in ${PATH//:/ }; do
+    edir="${pdir/#\~/$HOME}"
+    if [[ $edir == $HOME/* ]]; then
+        install_dir=$edir
+        mkdir -p $install_dir 2>/dev/null || true
+        SUDO=
+        break
+    fi
+done
+
+chmod +x $OUTPUT 2>/dev/null 
+$SUDO rm -f /usr/local/bin/$KUBESCAPE_EXEC 2>/dev/null || true # clearning up old install
+$SUDO cp $OUTPUT $install_dir/$KUBESCAPE_EXEC 
 rm -rf $OUTPUT
 
-echo -e "[V] Finished Installation"
+echo
+echo -e "\033[32mFinished Installation."
+
+echo -e "\033[0m"
+$KUBESCAPE_EXEC version
 echo
 
-echo -e "\033[35m Usage: $ $KUBESCAPE_EXEC scan framework nsa --exclude-namespaces kube-system,kube-public"
-echo
+echo -e "\033[35mUsage: $ $KUBESCAPE_EXEC scan --submit --enable-host-scan --verbose"
+
+echo -e "\033[0m"

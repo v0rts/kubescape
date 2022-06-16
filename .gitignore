@@ -1,4 +1,7 @@
 *.vs*
-*go.sum*
 *kubescape*
 *debug*
+*vender*
+*.pyc*
+.idea
+ca.srl

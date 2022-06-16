@@ -1,7 +1,12 @@
 package main
 
-import "github.com/armosec/kubescape/cmd"
+import (
+	"github.com/armosec/kubescape/v2/cmd"
+	"github.com/armosec/kubescape/v2/core/cautils/logger"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		logger.L().Fatal(err.Error())
+	}
 }
