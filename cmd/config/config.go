@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/armosec/kubescape/v2/core/meta"
+	"github.com/kubescape/kubescape/v2/core/meta"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +25,9 @@ var (
 
   # Set access key
   kubescape config set secretKey <access key>
+
+  # Set cloudAPIURL
+  kubescape config set cloudAPIURL <cloud API URL>
 `
 )
 

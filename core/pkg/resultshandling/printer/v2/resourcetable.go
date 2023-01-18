@@ -1,13 +1,13 @@
-package v2
+package printer
 
 import (
 	"fmt"
 	"sort"
 	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/reportsummary"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/resourcesresults"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/reportsummary"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/resourcesresults"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -29,10 +29,10 @@ func (prettyPrinter *PrettyPrinter) resourceTable(opaSessionObj *cautils.OPASess
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(prettyPrinter.writer, "\n"+getSperator("#")+"\n\n")
+		fmt.Fprintf(prettyPrinter.writer, "\n%s\n", getSeparator("#"))
 
 		if source, ok := opaSessionObj.ResourceSource[resourceID]; ok {
-			fmt.Fprintf(prettyPrinter.writer, "Source: %s\n", source)
+			fmt.Fprintf(prettyPrinter.writer, "Source: %s\n", source.RelativePath)
 		}
 		fmt.Fprintf(prettyPrinter.writer, "ApiVersion: %s\n", resource.GetApiVersion())
 		fmt.Fprintf(prettyPrinter.writer, "Kind: %s\n", resource.GetKind())
@@ -73,11 +73,11 @@ func generateResourceRows(controls []resourcesresults.ResourceAssociatedControl,
 			continue
 		}
 
-		row[resourceColumnURL] = fmt.Sprintf("https://hub.armo.cloud/docs/%s", strings.ToLower(controls[i].GetID()))
-		row[resourceColumnPath] = strings.Join(failedPathsToString(&controls[i]), "\n")
+		row[resourceColumnURL] = cautils.GetControlLink(controls[i].GetID())
+		row[resourceColumnPath] = strings.Join(append(failedPathsToString(&controls[i]), fixPathsToString(&controls[i])...), "\n")
 		row[resourceColumnName] = controls[i].GetName()
 
-		if c := summaryDetails.Controls.GetControl(reportsummary.EControlCriteriaName, controls[i].GetName()); c != nil {
+		if c := summaryDetails.Controls.GetControl(reportsummary.EControlCriteriaID, controls[i].GetID()); c != nil {
 			row[resourceColumnSeverity] = getSeverityColumn(c)
 		}
 
@@ -120,6 +120,16 @@ func failedPathsToString(control *resourcesresults.ResourceAssociatedControl) []
 			if p := control.ResourceAssociatedRules[j].Paths[k].FailedPath; p != "" {
 				paths = append(paths, p)
 			}
+		}
+	}
+	return paths
+}
+
+func fixPathsToString(control *resourcesresults.ResourceAssociatedControl) []string {
+	var paths []string
+
+	for j := range control.ResourceAssociatedRules {
+		for k := range control.ResourceAssociatedRules[j].Paths {
 			if p := control.ResourceAssociatedRules[j].Paths[k].FixPath.Path; p != "" {
 				v := control.ResourceAssociatedRules[j].Paths[k].FixPath.Value
 				paths = append(paths, fmt.Sprintf("%s=%s", p, v))

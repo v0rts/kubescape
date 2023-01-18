@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/armosec/k8s-interface/k8sinterface"
+	"github.com/kubescape/k8s-interface/k8sinterface"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type IFieldSelector interface {
 	GetNamespacesSelectors(*schema.GroupVersionResource) []string
+	GetClusterScope(*schema.GroupVersionResource) bool
 }
 
 type EmptySelector struct {
@@ -17,6 +18,10 @@ type EmptySelector struct {
 
 func (es *EmptySelector) GetNamespacesSelectors(resource *schema.GroupVersionResource) []string {
 	return []string{""} //
+}
+
+func (es *EmptySelector) GetClusterScope(*schema.GroupVersionResource) bool {
+	return true
 }
 
 type ExcludeSelector struct {
@@ -27,6 +32,11 @@ func NewExcludeSelector(ns string) *ExcludeSelector {
 	return &ExcludeSelector{namespace: ns}
 }
 
+func (es *ExcludeSelector) GetClusterScope(resource *schema.GroupVersionResource) bool {
+	// for selector, 'namespace' is in Namespaced scope
+	return resource.Resource == "namespaces"
+}
+
 type IncludeSelector struct {
 	namespace string
 }
@@ -34,6 +44,12 @@ type IncludeSelector struct {
 func NewIncludeSelector(ns string) *IncludeSelector {
 	return &IncludeSelector{namespace: ns}
 }
+
+func (is *IncludeSelector) GetClusterScope(resource *schema.GroupVersionResource) bool {
+	// for selector, 'namespace' is in Namespaced scope
+	return resource.Resource == "namespaces"
+}
+
 func (es *ExcludeSelector) GetNamespacesSelectors(resource *schema.GroupVersionResource) []string {
 	fieldSelectors := ""
 	for _, n := range strings.Split(es.namespace, ",") {

@@ -1,7 +1,9 @@
 *.vs*
 *kubescape*
 *debug*
-*vender*
+*vendor*
 *.pyc*
 .idea
+.history
 ca.srl
+*.out

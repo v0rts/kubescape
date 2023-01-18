@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/core"
-	"github.com/armosec/kubescape/v2/core/meta"
-	v1 "github.com/armosec/kubescape/v2/core/meta/datastructures/v1"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/core"
+	"github.com/kubescape/kubescape/v2/core/meta"
+	v1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -20,14 +20,11 @@ var (
   # List all supported frameworks names
   kubescape list frameworks --account <account id>
 	
-  # List all supported controls names
+  # List all supported controls names with ids
   kubescape list controls
-
-  # List all supported controls ids
-  kubescape list controls --id 
   
   Control documentation:
-  https://hub.armo.cloud/docs/controls
+  https://hub.armosec.io/docs/controls
 `
 )
 
@@ -51,6 +48,11 @@ func GetListCmd(ks meta.IKubescape) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+
+			if err := flagValidationList(&listPolicies); err != nil {
+				return err
+			}
+
 			listPolicies.Target = args[0]
 
 			if err := ks.List(&listPolicies); err != nil {
@@ -60,10 +62,17 @@ func GetListCmd(ks meta.IKubescape) *cobra.Command {
 		},
 	}
 	listCmd.PersistentFlags().StringVarP(&listPolicies.Credentials.Account, "account", "", "", "Kubescape SaaS account ID. Default will load account ID from cache")
-	listCmd.PersistentFlags().StringVarP(&listPolicies.Credentials.ClientID, "client-id", "", "", "Kubescape SaaS client ID. Default will load client ID from cache, read more - https://hub.armo.cloud/docs/authentication")
-	listCmd.PersistentFlags().StringVarP(&listPolicies.Credentials.SecretKey, "secret-key", "", "", "Kubescape SaaS secret key. Default will load secret key from cache, read more - https://hub.armo.cloud/docs/authentication")
-	listCmd.PersistentFlags().StringVar(&listPolicies.Format, "format", "pretty-print", "output format. supported: 'pretty-printer'/'json'")
-	listCmd.PersistentFlags().BoolVarP(&listPolicies.ListIDs, "id", "", false, "List control ID's instead of controls names")
+	listCmd.PersistentFlags().StringVarP(&listPolicies.Credentials.ClientID, "client-id", "", "", "Kubescape SaaS client ID. Default will load client ID from cache, read more - https://hub.armosec.io/docs/authentication")
+	listCmd.PersistentFlags().StringVarP(&listPolicies.Credentials.SecretKey, "secret-key", "", "", "Kubescape SaaS secret key. Default will load secret key from cache, read more - https://hub.armosec.io/docs/authentication")
+	listCmd.PersistentFlags().StringVar(&listPolicies.Format, "format", "pretty-print", "output format. supported: 'pretty-print'/'json'")
+	listCmd.PersistentFlags().MarkDeprecated("id", "Control ID's are included in list outpus")
 
 	return listCmd
+}
+
+// Check if the flag entered are valid
+func flagValidationList(listPolicies *v1.ListPolicies) error {
+
+	// Validate the user's credentials
+	return listPolicies.Credentials.Validate()
 }

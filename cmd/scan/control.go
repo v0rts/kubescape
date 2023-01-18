@@ -6,12 +6,13 @@ import (
 	"os"
 	"strings"
 
-	apisv1 "github.com/armosec/opa-utils/httpserver/apis/v1"
+	apisv1 "github.com/kubescape/opa-utils/httpserver/apis/v1"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/cautils/logger/helpers"
-	"github.com/armosec/kubescape/v2/core/meta"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/meta"
+
 	"github.com/enescakir/emoji"
 	"github.com/spf13/cobra"
 )
@@ -22,7 +23,7 @@ var (
   kubescape scan control "privileged container"
 	
   # Scan list of controls separated with a comma
-  kubescape scan control "privileged container","allowed hostpath"
+  kubescape scan control "privileged container","HostPath mount"
   
   # Scan list of controls using the control ID separated with a comma
   kubescape scan control C-0058,C-0057
@@ -30,7 +31,7 @@ var (
   Run 'kubescape list controls' for the list of supported controls
   
   Control documentation:
-  https://hub.armo.cloud/docs/controls
+  https://hub.armosec.io/docs/controls
 `
 )
 
@@ -57,6 +58,10 @@ func getControlCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comman
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 
+			if err := validateFrameworkScanInfo(scanInfo); err != nil {
+				return err
+			}
+
 			// flagValidationControl(scanInfo)
 			scanInfo.PolicyIdentifier = []cautils.PolicyIdentifier{}
 
@@ -69,7 +74,7 @@ func getControlCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comman
 
 				if len(args) > 1 {
 					if len(args[1:]) == 0 || args[1] != "-" {
-						scanInfo.InputPatterns = []string{args[1]}
+						scanInfo.InputPatterns = args[1:]
 					} else { // store stdin to file - do NOT move to separate function !!
 						tempFile, err := os.CreateTemp(".", "tmp-kubescape*.yaml")
 						if err != nil {
@@ -87,6 +92,10 @@ func getControlCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comman
 
 			scanInfo.FrameworkScan = false
 
+			if err := validateControlScanInfo(scanInfo); err != nil {
+				return err
+			}
+
 			results, err := ks.Scan(scanInfo)
 			if err != nil {
 				logger.L().Fatal(err.Error())
@@ -100,7 +109,23 @@ func getControlCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comman
 			if results.GetRiskScore() > float32(scanInfo.FailThreshold) {
 				logger.L().Fatal("scan risk-score is above permitted threshold", helpers.String("risk-score", fmt.Sprintf("%.2f", results.GetRiskScore())), helpers.String("fail-threshold", fmt.Sprintf("%.2f", scanInfo.FailThreshold)))
 			}
+			enforceSeverityThresholds(results.GetResults().SummaryDetails.GetResourcesSeverityCounters(), scanInfo, terminateOnExceedingSeverity)
+
 			return nil
 		},
 	}
+}
+
+// validateControlScanInfo validates the ScanInfo struct for the `control` command
+func validateControlScanInfo(scanInfo *cautils.ScanInfo) error {
+	severity := scanInfo.FailThresholdSeverity
+
+	if scanInfo.Submit && scanInfo.OmitRawResources {
+		return fmt.Errorf("you can use `omit-raw-resources` or `submit`, but not both")
+	}
+
+	if err := validateSeverity(severity); severity != "" && err != nil {
+		return err
+	}
+	return nil
 }

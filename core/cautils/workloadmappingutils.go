@@ -3,7 +3,8 @@ package cautils
 import (
 	"strings"
 
-	"github.com/armosec/opa-utils/reporthandling/apis"
+	"github.com/kubescape/k8s-interface/cloudsupport"
+	"github.com/kubescape/opa-utils/reporthandling/apis"
 )
 
 var (
@@ -14,13 +15,21 @@ var (
 		"KernelVersion",
 		"LinuxSecurityHardeningStatus",
 		"OpenPortsList",
-		"LinuxKernelVariables"}
-	CloudResources = []string{"ClusterDescribe"}
+		"LinuxKernelVariables",
+		"KubeletInfo",
+		"KubeProxyInfo",
+		"ControlPlaneInfo",
+		"CloudProviderInfo",
+	}
+	CloudResources = []string{
+		"ClusterDescribe",
+		string(cloudsupport.TypeApiServerInfo),
+	}
 )
 
-func MapArmoResource(armoResourceMap *ArmoResources, resources []string) []string {
+func MapKSResource(ksResourceMap *KSResources, resources []string) []string {
 	var hostResources []string
-	for k := range *armoResourceMap {
+	for k := range *ksResourceMap {
 		for _, resource := range resources {
 			if strings.Contains(k, resource) {
 				hostResources = append(hostResources, k)
@@ -30,16 +39,16 @@ func MapArmoResource(armoResourceMap *ArmoResources, resources []string) []strin
 	return hostResources
 }
 
-func MapHostResources(armoResourceMap *ArmoResources) []string {
-	return MapArmoResource(armoResourceMap, HostSensorResources)
+func MapHostResources(ksResourceMap *KSResources) []string {
+	return MapKSResource(ksResourceMap, HostSensorResources)
 }
 
-func MapImageVulnResources(armoResourceMap *ArmoResources) []string {
-	return MapArmoResource(armoResourceMap, ImageVulnResources)
+func MapImageVulnResources(ksResourceMap *KSResources) []string {
+	return MapKSResource(ksResourceMap, ImageVulnResources)
 }
 
-func MapCloudResources(armoResourceMap *ArmoResources) []string {
-	return MapArmoResource(armoResourceMap, CloudResources)
+func MapCloudResources(ksResourceMap *KSResources) []string {
+	return MapKSResource(ksResourceMap, CloudResources)
 }
 
 func SetInfoMapForResources(info string, resources []string, errorMap map[string]apis.StatusInfo) {

@@ -3,9 +3,9 @@ package v1
 import (
 	"testing"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	apisv1 "github.com/armosec/opa-utils/httpserver/apis/v1"
-	utilsmetav1 "github.com/armosec/opa-utils/httpserver/meta/v1"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	apisv1 "github.com/kubescape/opa-utils/httpserver/apis/v1"
+	utilsmetav1 "github.com/kubescape/opa-utils/httpserver/meta/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -32,9 +32,9 @@ func TestToScanInfo(t *testing.T) {
 		assert.False(t, s.Submit)
 		assert.False(t, s.ScanAll)
 		assert.True(t, s.FrameworkScan)
-		assert.Equal(t, "nsa", s.PolicyIdentifier[0].Name)
+		assert.Equal(t, "nsa", s.PolicyIdentifier[0].Identifier)
 		assert.Equal(t, apisv1.KindFramework, s.PolicyIdentifier[0].Kind)
-		assert.Equal(t, "mitre", s.PolicyIdentifier[1].Name)
+		assert.Equal(t, "mitre", s.PolicyIdentifier[1].Identifier)
 		assert.Equal(t, apisv1.KindFramework, s.PolicyIdentifier[1].Kind)
 	}
 	{
@@ -49,7 +49,7 @@ func TestToScanInfo(t *testing.T) {
 		assert.Equal(t, "kube-system,kube-public", s.IncludeNamespaces)
 		assert.Equal(t, "", s.ExcludedNamespaces)
 		assert.Equal(t, 1, len(s.PolicyIdentifier))
-		assert.Equal(t, "c-0001", s.PolicyIdentifier[0].Name)
+		assert.Equal(t, "c-0001", s.PolicyIdentifier[0].Identifier)
 		assert.Equal(t, apisv1.KindControl, s.PolicyIdentifier[0].Kind)
 	}
 	{

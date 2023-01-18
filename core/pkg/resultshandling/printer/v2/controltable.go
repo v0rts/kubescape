@@ -1,13 +1,13 @@
-package v2
+package printer
 
 import (
 	"fmt"
 	"sort"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/opa-utils/reporthandling/apis"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/reportsummary"
 	"github.com/fatih/color"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/opa-utils/reporthandling/apis"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/reportsummary"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -78,6 +78,20 @@ func getColor(controlSeverity int) color.Attribute {
 	}
 }
 
+func getSortedControlsIDs(controls reportsummary.ControlSummaries) [][]string {
+	controlIDs := make([][]string, 5)
+	for k := range controls {
+		c := controls[k]
+		i := apis.ControlSeverityToInt(c.GetScoreFactor())
+		controlIDs[i] = append(controlIDs[i], c.GetID())
+	}
+	for i := range controlIDs {
+		sort.Strings(controlIDs[i])
+	}
+	return controlIDs
+}
+
+/* unused for now
 func getSortedControlsNames(controls reportsummary.ControlSummaries) [][]string {
 	controlNames := make([][]string, 5)
 	for k := range controls {
@@ -90,6 +104,7 @@ func getSortedControlsNames(controls reportsummary.ControlSummaries) [][]string 
 	}
 	return controlNames
 }
+*/
 
 func getControlTableHeaders() []string {
 	headers := make([]string, _rowLen)

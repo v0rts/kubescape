@@ -1,10 +1,10 @@
 package meta
 
 import (
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/meta/cliinterfaces"
-	metav1 "github.com/armosec/kubescape/v2/core/meta/datastructures/v1"
-	"github.com/armosec/kubescape/v2/core/pkg/resultshandling"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/meta/cliinterfaces"
+	metav1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling"
 )
 
 type IKubescape interface {
@@ -25,4 +25,7 @@ type IKubescape interface {
 
 	// delete
 	DeleteExceptions(deleteexceptions *metav1.DeleteExceptions) error
+
+	// fix
+	Fix(fixInfo *metav1.FixInfo) error
 }

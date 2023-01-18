@@ -1,20 +1,20 @@
-package v2
+package printer
 
 import (
-	"github.com/armosec/k8s-interface/workloadinterface"
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/cautils/logger/helpers"
-	"github.com/armosec/opa-utils/reporthandling"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/reportsummary"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/resourcesresults"
-	reporthandlingv2 "github.com/armosec/opa-utils/reporthandling/v2"
+	"github.com/kubescape/k8s-interface/workloadinterface"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/opa-utils/reporthandling"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/prioritization"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/reportsummary"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/resourcesresults"
+	reporthandlingv2 "github.com/kubescape/opa-utils/reporthandling/v2"
 )
 
 // finalizeV2Report finalize the results objects by copying data from map to lists
 func FinalizeResults(data *cautils.OPASessionObj) *reporthandlingv2.PostureReport {
 	report := reporthandlingv2.PostureReport{
 		SummaryDetails:       data.Report.SummaryDetails,
+		Metadata:             *data.Metadata,
 		ClusterAPIServerInfo: data.Report.ClusterAPIServerInfo,
 		ReportGenerationTime: data.Report.ReportGenerationTime,
 		Attributes:           data.Report.Attributes,
@@ -24,16 +24,23 @@ func FinalizeResults(data *cautils.OPASessionObj) *reporthandlingv2.PostureRepor
 	}
 
 	report.Results = make([]resourcesresults.Result, len(data.ResourcesResult))
-	finalizeResults(report.Results, data.ResourcesResult)
+	finalizeResults(report.Results, data.ResourcesResult, data.ResourcesPrioritized)
 
-	report.Resources = finalizeResources(report.Results, data.AllResources, data.ResourceSource)
+	if !data.OmitRawResources {
+		report.Resources = finalizeResources(report.Results, data.AllResources, data.ResourceSource)
+	}
 
 	return &report
 }
-func finalizeResults(results []resourcesresults.Result, resourcesResult map[string]resourcesresults.Result) {
+func finalizeResults(results []resourcesresults.Result, resourcesResult map[string]resourcesresults.Result, prioritizedResources map[string]prioritization.PrioritizedResource) {
 	index := 0
 	for resourceID := range resourcesResult {
 		results[index] = resourcesResult[resourceID]
+
+		// Add prioritization information to the result
+		if v, exist := prioritizedResources[resourceID]; exist {
+			results[index].PrioritizedResource = &v
+		}
 		index++
 	}
 }
@@ -62,23 +69,16 @@ func mapInfoToPrintInfo(controls reportsummary.ControlSummaries) []infoStars {
 	return infoToPrintInfo
 }
 
-func finalizeResources(results []resourcesresults.Result, allResources map[string]workloadinterface.IMetadata, resourcesSource map[string]string) []reporthandling.Resource {
+func finalizeResources(results []resourcesresults.Result, allResources map[string]workloadinterface.IMetadata, resourcesSource map[string]reporthandling.Source) []reporthandling.Resource {
 	resources := make([]reporthandling.Resource, 0)
 	for i := range results {
 		if obj, ok := allResources[results[i].ResourceID]; ok {
 			resource := *reporthandling.NewResourceIMetadata(obj)
 			if r, ok := resourcesSource[results[i].ResourceID]; ok {
-				resource.SetSource(&reporthandling.Source{Path: r})
+				resource.SetSource(&r)
 			}
 			resources = append(resources, resource)
 		}
 	}
 	return resources
-}
-
-func logOUtputFile(fileName string) {
-	if fileName != "/dev/stdout" && fileName != "/dev/stderr" {
-		logger.L().Success("Scan results saved", helpers.String("filename", fileName))
-	}
-
 }

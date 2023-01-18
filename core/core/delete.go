@@ -3,20 +3,20 @@ package core
 import (
 	"fmt"
 
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/cautils/logger/helpers"
-	v1 "github.com/armosec/kubescape/v2/core/meta/datastructures/v1"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
+	v1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
 )
 
 func (ks *Kubescape) DeleteExceptions(delExceptions *v1.DeleteExceptions) error {
 
 	// load cached config
-	getTenantConfig(&delExceptions.Credentials, "", getKubernetesApi())
+	getTenantConfig(&delExceptions.Credentials, "", "", getKubernetesApi())
 
 	// login kubescape SaaS
-	armoAPI := getter.GetArmoAPIConnector()
-	if err := armoAPI.Login(); err != nil {
+	ksCloudAPI := getter.GetKSCloudAPIConnector()
+	if err := ksCloudAPI.Login(); err != nil {
 		return err
 	}
 
@@ -26,7 +26,7 @@ func (ks *Kubescape) DeleteExceptions(delExceptions *v1.DeleteExceptions) error 
 			continue
 		}
 		logger.L().Info("Deleting exception", helpers.String("name", exceptionName))
-		if err := armoAPI.DeleteException(exceptionName); err != nil {
+		if err := ksCloudAPI.DeleteException(exceptionName); err != nil {
 			return fmt.Errorf("failed to delete exception '%s', reason: %s", exceptionName, err.Error())
 		}
 		logger.L().Success("Exception deleted successfully")

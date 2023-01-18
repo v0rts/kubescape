@@ -6,19 +6,21 @@ import (
 	"time"
 
 	"github.com/armosec/armoapi-go/armotypes"
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/cautils/logger/helpers"
-	"github.com/armosec/kubescape/v2/core/pkg/score"
-	"github.com/armosec/opa-utils/objectsenvelopes"
-	"github.com/armosec/opa-utils/reporthandling"
-	"github.com/armosec/opa-utils/reporthandling/apis"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/resourcesresults"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/pkg/score"
+	"github.com/kubescape/opa-utils/objectsenvelopes"
+	"github.com/kubescape/opa-utils/reporthandling"
+	"github.com/kubescape/opa-utils/reporthandling/apis"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/resourcesresults"
+
 	"github.com/open-policy-agent/opa/storage"
 
-	"github.com/armosec/k8s-interface/workloadinterface"
+	"github.com/kubescape/k8s-interface/workloadinterface"
 
-	"github.com/armosec/opa-utils/resources"
+	reporthandlingv2 "github.com/kubescape/opa-utils/reporthandling/v2"
+	"github.com/kubescape/opa-utils/resources"
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/rego"
 )
@@ -33,6 +35,7 @@ type OPAProcessor struct {
 func NewOPAProcessor(sessionObj *cautils.OPASessionObj, regoDependenciesData *resources.RegoDependenciesData) *OPAProcessor {
 	if regoDependenciesData != nil && sessionObj != nil {
 		regoDependenciesData.PostureControlInputs = sessionObj.RegoInputData.PostureControlInputs
+		regoDependenciesData.DataControlInputs = sessionObj.RegoInputData.DataControlInputs
 	}
 	return &OPAProcessor{
 		OPASessionObj:        sessionObj,
@@ -41,12 +44,12 @@ func NewOPAProcessor(sessionObj *cautils.OPASessionObj, regoDependenciesData *re
 }
 func (opap *OPAProcessor) ProcessRulesListenner() error {
 
-	policies := ConvertFrameworksToPolicies(opap.Policies, cautils.BuildNumber)
+	opap.OPASessionObj.AllPolicies = ConvertFrameworksToPolicies(opap.Policies, cautils.BuildNumber)
 
-	ConvertFrameworksToSummaryDetails(&opap.Report.SummaryDetails, opap.Policies, policies)
+	ConvertFrameworksToSummaryDetails(&opap.Report.SummaryDetails, opap.Policies, opap.OPASessionObj.AllPolicies)
 
 	// process
-	if err := opap.Process(policies); err != nil {
+	if err := opap.Process(opap.OPASessionObj.AllPolicies); err != nil {
 		logger.L().Error(err.Error())
 		// Return error?
 	}
@@ -62,36 +65,58 @@ func (opap *OPAProcessor) ProcessRulesListenner() error {
 }
 
 func (opap *OPAProcessor) Process(policies *cautils.Policies) error {
-	logger.L().Info("Scanning", helpers.String("cluster", cautils.ClusterName))
+	opap.loggerStartScanning()
 
 	cautils.StartSpinner()
 
-	var errs error
-	for _, control := range policies.Controls {
+	for _, toPin := range policies.Controls {
+		control := toPin
 
 		resourcesAssociatedControl, err := opap.processControl(&control)
 		if err != nil {
 			logger.L().Error(err.Error())
 		}
+
+		if len(resourcesAssociatedControl) == 0 {
+			continue
+		}
+
 		// update resources with latest results
-		if len(resourcesAssociatedControl) != 0 {
-			for resourceID, controlResult := range resourcesAssociatedControl {
-				if _, ok := opap.ResourcesResult[resourceID]; !ok {
-					opap.ResourcesResult[resourceID] = resourcesresults.Result{ResourceID: resourceID}
-				}
-				t := opap.ResourcesResult[resourceID]
-				t.AssociatedControls = append(t.AssociatedControls, controlResult)
-				opap.ResourcesResult[resourceID] = t
+		for resourceID, controlResult := range resourcesAssociatedControl {
+			if _, ok := opap.ResourcesResult[resourceID]; !ok {
+				opap.ResourcesResult[resourceID] = resourcesresults.Result{ResourceID: resourceID}
 			}
+			t := opap.ResourcesResult[resourceID]
+			t.AssociatedControls = append(t.AssociatedControls, controlResult)
+			opap.ResourcesResult[resourceID] = t
 		}
 	}
 
 	opap.Report.ReportGenerationTime = time.Now().UTC()
 
 	cautils.StopSpinner()
-	logger.L().Success("Done scanning", helpers.String("cluster", cautils.ClusterName))
 
-	return errs
+	opap.loggerDoneScanning()
+
+	return nil
+}
+
+func (opap *OPAProcessor) loggerStartScanning() {
+	targetScan := opap.OPASessionObj.Metadata.ScanMetadata.ScanningTarget
+	if reporthandlingv2.Cluster == targetScan {
+		logger.L().Info("Scanning", helpers.String(targetScan.String(), cautils.ClusterName))
+	} else {
+		logger.L().Info("Scanning " + targetScan.String())
+	}
+}
+
+func (opap *OPAProcessor) loggerDoneScanning() {
+	targetScan := opap.OPASessionObj.Metadata.ScanMetadata.ScanningTarget
+	if reporthandlingv2.Cluster == targetScan {
+		logger.L().Success("Done scanning", helpers.String(targetScan.String(), cautils.ClusterName))
+	} else {
+		logger.L().Success("Done scanning " + targetScan.String())
+	}
 }
 
 func (opap *OPAProcessor) processControl(control *reporthandling.Control) (map[string]resourcesresults.ResourceAssociatedControl, error) {
@@ -101,7 +126,7 @@ func (opap *OPAProcessor) processControl(control *reporthandling.Control) (map[s
 
 	// ruleResults := make(map[string][]resourcesresults.ResourceAssociatedRule)
 	for i := range control.Rules {
-		resourceAssociatedRule, err := opap.processRule(&control.Rules[i])
+		resourceAssociatedRule, err := opap.processRule(&control.Rules[i], control.FixedInput)
 		if err != nil {
 			logger.L().Error(err.Error())
 			continue
@@ -129,9 +154,18 @@ func (opap *OPAProcessor) processControl(control *reporthandling.Control) (map[s
 	return resourcesAssociatedControl, errs
 }
 
-func (opap *OPAProcessor) processRule(rule *reporthandling.PolicyRule) (map[string]*resourcesresults.ResourceAssociatedRule, error) {
+func (opap *OPAProcessor) processRule(rule *reporthandling.PolicyRule, fixedControlInputs map[string][]string) (map[string]*resourcesresults.ResourceAssociatedRule, error) {
 
 	postureControlInputs := opap.regoDependenciesData.GetFilteredPostureControlInputs(rule.ConfigInputs) // get store
+	dataControlInputs := map[string]string{"cloudProvider": opap.OPASessionObj.Report.ClusterCloudProvider}
+
+	// Merge configurable control input and fixed control input
+	for k, v := range fixedControlInputs {
+		postureControlInputs[k] = v
+	}
+
+	RuleRegoDependenciesData := resources.RegoDependenciesData{DataControlInputs: dataControlInputs,
+		PostureControlInputs: postureControlInputs}
 
 	inputResources, err := reporthandling.RegoResourcesAggregator(rule, getAllSupportedObjects(opap.K8SResources, opap.ArmoResource, opap.AllResources, rule))
 	if err != nil {
@@ -159,7 +193,7 @@ func (opap *OPAProcessor) processRule(rule *reporthandling.PolicyRule) (map[stri
 		opap.AllResources[inputResources[i].GetID()] = inputResources[i]
 	}
 
-	ruleResponses, err := opap.runOPAOnSingleRule(rule, inputRawResources, ruleData, postureControlInputs)
+	ruleResponses, err := opap.runOPAOnSingleRule(rule, inputRawResources, ruleData, RuleRegoDependenciesData)
 	if err != nil {
 		// TODO - Handle error
 		logger.L().Error(err.Error())
@@ -191,16 +225,16 @@ func (opap *OPAProcessor) processRule(rule *reporthandling.PolicyRule) (map[stri
 	return resources, err
 }
 
-func (opap *OPAProcessor) runOPAOnSingleRule(rule *reporthandling.PolicyRule, k8sObjects []map[string]interface{}, getRuleData func(*reporthandling.PolicyRule) string, postureControlInputs map[string][]string) ([]reporthandling.RuleResponse, error) {
+func (opap *OPAProcessor) runOPAOnSingleRule(rule *reporthandling.PolicyRule, k8sObjects []map[string]interface{}, getRuleData func(*reporthandling.PolicyRule) string, ruleRegoDependenciesData resources.RegoDependenciesData) ([]reporthandling.RuleResponse, error) {
 	switch rule.RuleLanguage {
 	case reporthandling.RegoLanguage, reporthandling.RegoLanguage2:
-		return opap.runRegoOnK8s(rule, k8sObjects, getRuleData, postureControlInputs)
+		return opap.runRegoOnK8s(rule, k8sObjects, getRuleData, ruleRegoDependenciesData)
 	default:
 		return nil, fmt.Errorf("rule: '%s', language '%v' not supported", rule.Name, rule.RuleLanguage)
 	}
 }
 
-func (opap *OPAProcessor) runRegoOnK8s(rule *reporthandling.PolicyRule, k8sObjects []map[string]interface{}, getRuleData func(*reporthandling.PolicyRule) string, postureControlInputs map[string][]string) ([]reporthandling.RuleResponse, error) {
+func (opap *OPAProcessor) runRegoOnK8s(rule *reporthandling.PolicyRule, k8sObjects []map[string]interface{}, getRuleData func(*reporthandling.PolicyRule) string, ruleRegoDependenciesData resources.RegoDependenciesData) ([]reporthandling.RuleResponse, error) {
 
 	// compile modules
 	modules, err := getRuleDependencies()
@@ -213,7 +247,7 @@ func (opap *OPAProcessor) runRegoOnK8s(rule *reporthandling.PolicyRule, k8sObjec
 		return nil, fmt.Errorf("in 'runRegoOnSingleRule', failed to compile rule, name: %s, reason: %s", rule.Name, err.Error())
 	}
 
-	store, err := resources.TOStorage(postureControlInputs)
+	store, err := ruleRegoDependenciesData.TOStorage()
 	if err != nil {
 		return nil, err
 	}
@@ -256,8 +290,12 @@ func (opap *OPAProcessor) enumerateData(rule *reporthandling.PolicyRule, k8sObje
 		return k8sObjects, nil
 	}
 	postureControlInputs := opap.regoDependenciesData.GetFilteredPostureControlInputs(rule.ConfigInputs)
+	dataControlInputs := map[string]string{"cloudProvider": opap.OPASessionObj.Report.ClusterCloudProvider}
 
-	ruleResponse, err := opap.runOPAOnSingleRule(rule, k8sObjects, ruleEnumeratorData, postureControlInputs)
+	RuleRegoDependenciesData := resources.RegoDependenciesData{DataControlInputs: dataControlInputs,
+		PostureControlInputs: postureControlInputs}
+
+	ruleResponse, err := opap.runOPAOnSingleRule(rule, k8sObjects, ruleEnumeratorData, RuleRegoDependenciesData)
 	if err != nil {
 		return nil, err
 	}

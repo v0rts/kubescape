@@ -3,7 +3,7 @@ package v1
 import (
 	"time"
 
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
 )
 
 type V2ListRequest struct {
@@ -22,7 +22,7 @@ type V2ListRequest struct {
 	// How to order (sort) the list, field name + sort order (asc/desc), like https://www.w3schools.com/sql/sql_orderby.asp
 	// Example: "timestamp:asc,severity:desc"
 	OrderBy string `json:"orderBy,omitempty"`
-	// Cursor to the next page of former requset. Not supported yet
+	// Cursor to the next page of former request. Not supported yet
 	// Cursor cannot be used with another parameters of this struct
 	Cursor string `json:"cursor,omitempty"`
 	// FieldsList allow us to return only subset of the source document fields
@@ -30,6 +30,7 @@ type V2ListRequest struct {
 	FieldsList              []string          `json:"includeFields,omitempty"`
 	FieldsReverseKeywordMap map[string]string `json:"-,omitempty"`
 }
-type ArmoCivAdaptor struct {
-	armoAPI *getter.ArmoAPI
+
+type KSCivAdaptor struct {
+	ksCloudAPI *getter.KSCloudAPI
 }

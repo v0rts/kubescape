@@ -1,13 +1,20 @@
-package v1
+package printer
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/pkg/resultshandling/printer"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling/printer"
+)
+
+const (
+	jsonOutputFile = "report"
+	jsonOutputExt  = ".json"
 )
 
 type JsonPrinter struct {
@@ -19,6 +26,12 @@ func NewJsonPrinter() *JsonPrinter {
 }
 
 func (jsonPrinter *JsonPrinter) SetWriter(outputFile string) {
+	if strings.TrimSpace(outputFile) == "" {
+		outputFile = jsonOutputFile
+	}
+	if filepath.Ext(strings.TrimSpace(outputFile)) != jsonOutputExt {
+		outputFile = outputFile + jsonOutputExt
+	}
 	jsonPrinter.writer = printer.GetWriter(outputFile)
 }
 
@@ -27,19 +40,26 @@ func (jsonPrinter *JsonPrinter) Score(score float32) {
 }
 
 func (jsonPrinter *JsonPrinter) ActionPrint(opaSessionObj *cautils.OPASessionObj) {
-	cautils.ReportV2ToV1(opaSessionObj)
+	report := cautils.ReportV2ToV1(opaSessionObj)
 
 	var postureReportStr []byte
 	var err error
 
-	if len(opaSessionObj.PostureReport.FrameworkReports) == 1 {
-		postureReportStr, err = json.Marshal(opaSessionObj.PostureReport.FrameworkReports[0])
+	if len(report.FrameworkReports) == 1 {
+		postureReportStr, err = json.Marshal(report.FrameworkReports[0])
 	} else {
-		postureReportStr, err = json.Marshal(opaSessionObj.PostureReport.FrameworkReports)
+		postureReportStr, err = json.Marshal(report.FrameworkReports)
 	}
 
 	if err != nil {
 		logger.L().Fatal("failed to convert posture report object")
 	}
-	jsonPrinter.writer.Write(postureReportStr)
+
+	_, err = jsonPrinter.writer.Write(postureReportStr)
+
+	if err != nil {
+		logger.L().Fatal("failed to Write posture report object into JSON output")
+	} else {
+		printer.LogOutputFile(jsonPrinter.writer.Name())
+	}
 }

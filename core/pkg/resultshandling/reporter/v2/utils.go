@@ -1,10 +1,11 @@
-package v2
+package reporter
 
 import (
 	"net/url"
 	"strings"
 )
 
+/* unused for now
 func maskID(id string) string {
 	sep := "-"
 	splitted := strings.Split(id, sep)
@@ -22,8 +23,9 @@ func maskID(id string) string {
 
 	return strings.TrimSuffix(str, sep)
 }
+*/
 
-func ParseHost(urlObj *url.URL) {
+func parseHost(urlObj *url.URL) {
 	if strings.Contains(urlObj.Host, "http://") {
 		urlObj.Scheme = "http"
 		urlObj.Host = strings.Replace(urlObj.Host, "http://", "", 1)

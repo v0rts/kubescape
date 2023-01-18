@@ -5,8 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/kubescape/v2/core/cautils"
 )
 
 var INDENT = "   "
@@ -17,6 +18,8 @@ const (
 	JunitResultFormat string = "junit"
 	PrometheusFormat  string = "prometheus"
 	PdfFormat         string = "pdf"
+	HtmlFormat        string = "html"
+	SARIFFormat       string = "sarif"
 )
 
 type IPrinter interface {
@@ -40,4 +43,10 @@ func GetWriter(outputFile string) *os.File {
 	}
 	return os.Stdout
 
+}
+
+func LogOutputFile(fileName string) {
+	if fileName != os.Stdout.Name() && fileName != os.Stderr.Name() {
+		logger.L().Success("Scan results saved", helpers.String("filename", fileName))
+	}
 }

@@ -1,10 +1,13 @@
 package getter
 
 import (
+	"fmt"
 	"strings"
 
-	"github.com/armosec/opa-utils/gitregostore"
-	"github.com/armosec/opa-utils/reporthandling"
+	"github.com/armosec/armoapi-go/armotypes"
+	"github.com/kubescape/opa-utils/gitregostore"
+	"github.com/kubescape/opa-utils/reporthandling"
+	"github.com/kubescape/opa-utils/reporthandling/attacktrack/v1alpha1"
 )
 
 // =======================================================================================================================
@@ -22,11 +25,11 @@ func NewDownloadReleasedPolicy() *DownloadReleasedPolicy {
 	}
 }
 
-func (drp *DownloadReleasedPolicy) GetControl(policyName string) (*reporthandling.Control, error) {
+func (drp *DownloadReleasedPolicy) GetControl(ID string) (*reporthandling.Control, error) {
 	var control *reporthandling.Control
 	var err error
 
-	control, err = drp.gs.GetOPAControl(policyName)
+	control, err = drp.gs.GetOPAControlByID(ID)
 	if err != nil {
 		return nil, err
 	}
@@ -53,13 +56,29 @@ func (drp *DownloadReleasedPolicy) ListFrameworks() ([]string, error) {
 	return drp.gs.GetOPAFrameworksNamesList()
 }
 
-func (drp *DownloadReleasedPolicy) ListControls(listType ListType) ([]string, error) {
-	switch listType {
-	case ListID:
-		return drp.gs.GetOPAControlsIDsList()
-	default:
-		return drp.gs.GetOPAControlsNamesList()
+func (drp *DownloadReleasedPolicy) ListControls() ([]string, error) {
+	controlsIDsList, err := drp.gs.GetOPAControlsIDsList()
+	if err != nil {
+		return []string{}, err
 	}
+	controlsNamesList, err := drp.gs.GetOPAControlsNamesList()
+	if err != nil {
+		return []string{}, err
+	}
+	controls, err := drp.gs.GetOPAControls()
+	if err != nil {
+		return []string{}, err
+	}
+	var controlsFrameworksList [][]string
+	for _, control := range controls {
+		controlsFrameworksList = append(controlsFrameworksList, control.FrameworkNames)
+	}
+	controlsNamesWithIDsandFrameworksList := make([]string, len(controlsIDsList))
+	// by design all slices have the same lengt
+	for i := range controlsIDsList {
+		controlsNamesWithIDsandFrameworksList[i] = fmt.Sprintf("%v|%v|%v", controlsIDsList[i], controlsNamesList[i], strings.Join(controlsFrameworksList[i], ","))
+	}
+	return controlsNamesWithIDsandFrameworksList, nil
 }
 
 func (drp *DownloadReleasedPolicy) GetControlsInputs(clusterName string) (map[string][]string, error) {
@@ -68,6 +87,14 @@ func (drp *DownloadReleasedPolicy) GetControlsInputs(clusterName string) (map[st
 		return nil, err
 	}
 	return defaultConfigInputs.Settings.PostureControlInputs, err
+}
+
+func (drp *DownloadReleasedPolicy) GetAttackTracks() ([]v1alpha1.AttackTrack, error) {
+	attackTracks, err := drp.gs.GetAttackTracks()
+	if err != nil {
+		return nil, err
+	}
+	return attackTracks, err
 }
 
 func (drp *DownloadReleasedPolicy) SetRegoObjects() error {
@@ -89,4 +116,12 @@ func contains(s []string, str string) bool {
 		}
 	}
 	return false
+}
+
+func (drp *DownloadReleasedPolicy) GetExceptions(clusterName string) ([]armotypes.PostureExceptionPolicy, error) {
+	exceptions, err := drp.gs.GetSystemPostureExceptionPolicies()
+	if err != nil {
+		return nil, err
+	}
+	return exceptions, nil
 }

@@ -4,7 +4,7 @@ $BASE_DIR=$env:USERPROFILE + "\.kubescape"
 $packageName = "/kubescape-windows-latest"
 
 # Get latest release url
-$config = Invoke-WebRequest "https://api.github.com/repos/armosec/kubescape/releases/latest" | ConvertFrom-Json
+$config = Invoke-WebRequest "https://api.github.com/repos/kubescape/kubescape/releases/latest" | ConvertFrom-Json
 $url = $config.html_url.Replace("/tag/","/download/")
 $fullUrl = $url + $packageName
 
@@ -12,7 +12,17 @@ $fullUrl = $url + $packageName
 New-Item -Path $BASE_DIR -ItemType "directory" -ErrorAction SilentlyContinue
 
 # Download the binary
-Invoke-WebRequest -Uri $fullUrl -OutFile $BASE_DIR\kubescape.exe
+$useBitTransfer = $null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and ($PSVersionTable.PSVersion.Major -le 5)
+if ($useBitTransfer)
+    {
+        Write-Information -MessageData 'Using a fallback BitTransfer method since you are running Windows PowerShell'
+        Start-BitsTransfer -Source $fullUrl -Destination $BASE_DIR\kubescape.exe
+        
+    }
+    else
+    {
+       Invoke-WebRequest -Uri $fullUrl -OutFile $BASE_DIR\kubescape.exe
+    }
 
 # Update user PATH if needed
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")

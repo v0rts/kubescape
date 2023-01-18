@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/cautils"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +16,11 @@ func GetVersionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			v := cautils.NewIVersionCheckHandler()
 			v.CheckLatestVersion(cautils.NewVersionCheckRequest(cautils.BuildNumber, "", "", "version"))
-			fmt.Fprintln(os.Stdout, "Your current version is: "+cautils.BuildNumber)
+			fmt.Fprintf(os.Stdout,
+				"Your current version is: %s [git enabled in build: %t]\n",
+				cautils.BuildNumber,
+				isGitEnabled(),
+			)
 			return nil
 		},
 	}

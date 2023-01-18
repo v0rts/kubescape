@@ -2,18 +2,23 @@ package core
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/armosec/k8s-interface/k8sinterface"
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/cautils/logger/helpers"
-	"github.com/armosec/kubescape/v2/core/pkg/hostsensorutils"
-	"github.com/armosec/kubescape/v2/core/pkg/resourcehandler"
-	"github.com/armosec/kubescape/v2/core/pkg/resultshandling/reporter"
-	reporterv2 "github.com/armosec/kubescape/v2/core/pkg/resultshandling/reporter/v2"
+	"github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/k8s-interface/k8sinterface"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
+	"github.com/kubescape/kubescape/v2/core/pkg/hostsensorutils"
+	"github.com/kubescape/kubescape/v2/core/pkg/resourcehandler"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling/printer"
+	printerv2 "github.com/kubescape/kubescape/v2/core/pkg/resultshandling/printer/v2"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling/reporter"
+	reporterv2 "github.com/kubescape/kubescape/v2/core/pkg/resultshandling/reporter/v2"
 
-	"github.com/armosec/rbac-utils/rbacscanner"
+	"github.com/google/uuid"
+
+	"github.com/kubescape/rbac-utils/rbacscanner"
 )
 
 // getKubernetesApi
@@ -23,20 +28,32 @@ func getKubernetesApi() *k8sinterface.KubernetesApi {
 	}
 	return k8sinterface.NewKubernetesApi()
 }
-func getTenantConfig(credentials *cautils.Credentials, clusterName string, k8s *k8sinterface.KubernetesApi) cautils.ITenantConfig {
+func getTenantConfig(credentials *cautils.Credentials, clusterName string, customClusterName string, k8s *k8sinterface.KubernetesApi) cautils.ITenantConfig {
 	if !k8sinterface.IsConnectedToCluster() || k8s == nil {
-		return cautils.NewLocalConfig(getter.GetArmoAPIConnector(), credentials, clusterName)
+		return cautils.NewLocalConfig(getter.GetKSCloudAPIConnector(), credentials, clusterName, customClusterName)
 	}
-	return cautils.NewClusterConfig(k8s, getter.GetArmoAPIConnector(), credentials, clusterName)
+	return cautils.NewClusterConfig(k8s, getter.GetKSCloudAPIConnector(), credentials, clusterName, customClusterName)
 }
 
-func getExceptionsGetter(useExceptions string) getter.IExceptionsGetter {
+func getExceptionsGetter(useExceptions string, accountID string, downloadReleasedPolicy *getter.DownloadReleasedPolicy) getter.IExceptionsGetter {
 	if useExceptions != "" {
 		// load exceptions from file
 		return getter.NewLoadPolicy([]string{useExceptions})
-	} else {
-		return getter.GetArmoAPIConnector()
 	}
+	if accountID != "" {
+		// download exceptions from Kubescape Cloud backend
+		return getter.GetKSCloudAPIConnector()
+	}
+	// download exceptions from GitHub
+	if downloadReleasedPolicy == nil {
+		downloadReleasedPolicy = getter.NewDownloadReleasedPolicy()
+	}
+	if err := downloadReleasedPolicy.SetRegoObjects(); err != nil { // if failed to pull attack tracks, fallback to cache
+		logger.L().Warning("failed to get exceptions from github release, loading attack tracks from cache", helpers.Error(err))
+		return getter.NewLoadPolicy([]string{getter.GetDefaultPath(cautils.LocalExceptionsFilename)})
+	}
+	return downloadReleasedPolicy
+
 }
 
 func getRBACHandler(tenantConfig cautils.ITenantConfig, k8s *k8sinterface.KubernetesApi, submit bool) *cautils.RBACObjects {
@@ -46,13 +63,17 @@ func getRBACHandler(tenantConfig cautils.ITenantConfig, k8s *k8sinterface.Kubern
 	return nil
 }
 
-func getReporter(tenantConfig cautils.ITenantConfig, reportID string, submit, fwScan bool) reporter.IReport {
+func getReporter(tenantConfig cautils.ITenantConfig, reportID string, submit, fwScan bool, scanningContext cautils.ScanningContext) reporter.IReport {
 	if submit {
-		return reporterv2.NewReportEventReceiver(tenantConfig.GetConfigObj(), reportID)
+		submitData := reporterv2.SubmitContextScan
+		if scanningContext != cautils.ContextCluster {
+			submitData = reporterv2.SubmitContextRepository
+		}
+		return reporterv2.NewReportEventReceiver(tenantConfig.GetConfigObj(), reportID, submitData)
 	}
 	if tenantConfig.GetAccountID() == "" {
 		// Add link only when scanning a cluster using a framework
-		return reporterv2.NewReportMock(reporterv2.NO_SUBMIT_QUERY, "run kubescape with the '--submit' flag")
+		return reporterv2.NewReportMock("https://hub.armosec.io/docs/installing-kubescape", "run kubescape with the '--account' flag")
 	}
 	var message string
 	if !fwScan {
@@ -67,7 +88,7 @@ func getResourceHandler(scanInfo *cautils.ScanInfo, tenantConfig cautils.ITenant
 		// scanInfo.HostSensor.SetBool(false)
 		return resourcehandler.NewFileResourceHandler(scanInfo.InputPatterns, registryAdaptors)
 	}
-	getter.GetArmoAPIConnector()
+	getter.GetKSCloudAPIConnector()
 	rbacObjects := getRBACHandler(tenantConfig, k8s, scanInfo.Submit)
 	return resourcehandler.NewK8sResourceHandler(k8s, getFieldSelector(scanInfo), hostSensorHandler, rbacObjects, registryAdaptors)
 }
@@ -81,7 +102,7 @@ func getHostSensorHandler(scanInfo *cautils.ScanInfo, k8s *k8sinterface.Kubernet
 	// we need to determined which controls needs host scanner
 	if scanInfo.HostSensorEnabled.Get() == nil && hasHostSensorControls {
 		scanInfo.HostSensorEnabled.SetBool(false) // default - do not run host scanner
-		logger.L().Warning("Kubernetes cluster nodes scanning is disabled. This is required to collect valuable data for certain controls. You can enable it using  the --enable-host-scan flag")
+		logger.L().Warning("Kubernetes cluster nodes scanning is disabled. This is required to collect valuable data for certain controls. You can enable it using the --enable-host-scan flag")
 	}
 	if hostSensorVal := scanInfo.HostSensorEnabled.Get(); hostSensorVal != nil && *hostSensorVal {
 		hostSensorHandler, err := hostsensorutils.NewHostSensorHandler(k8s, scanInfo.HostSensorYamlPath)
@@ -104,34 +125,38 @@ func getFieldSelector(scanInfo *cautils.ScanInfo) resourcehandler.IFieldSelector
 	return &resourcehandler.EmptySelector{}
 }
 
-func policyIdentifierNames(pi []cautils.PolicyIdentifier) string {
-	policiesNames := ""
+func policyIdentifierIdentities(pi []cautils.PolicyIdentifier) string {
+	policiesIdentities := ""
 	for i := range pi {
-		policiesNames += pi[i].Name
+		policiesIdentities += pi[i].Identifier
 		if i+1 < len(pi) {
-			policiesNames += ","
+			policiesIdentities += ","
 		}
 	}
-	if policiesNames == "" {
-		policiesNames = "all"
+	if policiesIdentities == "" {
+		policiesIdentities = "all"
 	}
-	return policiesNames
+	return policiesIdentities
 }
 
-// setSubmitBehavior - Setup the desired cluster behavior regarding submitting to the Armo BE
+// setSubmitBehavior - Setup the desired cluster behavior regarding submitting to the Kubescape Cloud BE
 func setSubmitBehavior(scanInfo *cautils.ScanInfo, tenantConfig cautils.ITenantConfig) {
 
 	/*
+		If CloudReportURL not set - Do not send report
 
-		If "First run (local config not found)" -
-			Default/keep-local - Do not send report
-			Submit - Create tenant & Submit report
+		If There is no account - Do not send report
 
-		If "Submitted" -
+		If There is account -
 			keep-local - Do not send report
-			Default/Submit - Submit report
+			Default - Submit report
 
 	*/
+
+	if getter.GetKSCloudAPIConnector().GetCloudAPIURL() == "" {
+		scanInfo.Submit = false
+		return
+	}
 
 	// do not submit control scanning
 	if !scanInfo.FrameworkScan {
@@ -139,22 +164,37 @@ func setSubmitBehavior(scanInfo *cautils.ScanInfo, tenantConfig cautils.ITenantC
 		return
 	}
 
-	if tenantConfig.IsConfigFound() { // config found in cache (submitted)
-		if !scanInfo.Local {
-			// Submit report
-			scanInfo.Submit = true
-		}
+	scanningContext := scanInfo.GetScanningContext()
+	if scanningContext == cautils.ContextFile || scanningContext == cautils.ContextDir {
+		scanInfo.Submit = false
+		return
+	}
+
+	if scanInfo.Local {
+		scanInfo.Submit = false
+		return
+	}
+
+	// If There is no account, or if the account is not legal, do not submit
+	if _, err := uuid.Parse(tenantConfig.GetAccountID()); err != nil {
+		scanInfo.Submit = false
+	} else {
+		scanInfo.Submit = true
+	}
+
+	if scanInfo.CreateAccount {
+		scanInfo.Submit = true
 	}
 
 }
 
-// setPolicyGetter set the policy getter - local file/github release/ArmoAPI
-func getPolicyGetter(loadPoliciesFromFile []string, tennatEmail string, frameworkScope bool, downloadReleasedPolicy *getter.DownloadReleasedPolicy) getter.IPolicyGetter {
+// setPolicyGetter set the policy getter - local file/github release/Kubescape Cloud API
+func getPolicyGetter(loadPoliciesFromFile []string, tenantEmail string, frameworkScope bool, downloadReleasedPolicy *getter.DownloadReleasedPolicy) getter.IPolicyGetter {
 	if len(loadPoliciesFromFile) > 0 {
 		return getter.NewLoadPolicy(loadPoliciesFromFile)
 	}
-	if tennatEmail != "" && frameworkScope {
-		g := getter.GetArmoAPIConnector() // download policy from ARMO backend
+	if tenantEmail != "" && getter.GetKSCloudAPIConnector().GetCloudAPIURL() != "" && frameworkScope {
+		g := getter.GetKSCloudAPIConnector() // download policy from Kubescape Cloud backend
 		return g
 	}
 	if downloadReleasedPolicy == nil {
@@ -164,27 +204,13 @@ func getPolicyGetter(loadPoliciesFromFile []string, tennatEmail string, framewor
 
 }
 
-// func setGetArmoAPIConnector(scanInfo *cautils.ScanInfo, customerGUID string) {
-// 	g := getter.GetArmoAPIConnector() // download policy from ARMO backend
-// 	g.SetCustomerGUID(customerGUID)
-// 	scanInfo.PolicyGetter = g
-// 	if scanInfo.ScanAll {
-// 		frameworks, err := g.ListCustomFrameworks(customerGUID)
-// 		if err != nil {
-// 			glog.Error("failed to get custom frameworks") // handle error
-// 			return
-// 		}
-// 		scanInfo.SetPolicyIdentifiers(frameworks, reporthandling.KindFramework)
-// 	}
-// }
-
-// setConfigInputsGetter sets the config input getter - local file/github release/ArmoAPI
+// setConfigInputsGetter sets the config input getter - local file/github release/Kubescape Cloud API
 func getConfigInputsGetter(ControlsInputs string, accountID string, downloadReleasedPolicy *getter.DownloadReleasedPolicy) getter.IControlsInputsGetter {
 	if len(ControlsInputs) > 0 {
 		return getter.NewLoadPolicy([]string{ControlsInputs})
 	}
 	if accountID != "" {
-		g := getter.GetArmoAPIConnector() // download config from ARMO backend
+		g := getter.GetKSCloudAPIConnector() // download config from Kubescape Cloud backend
 		return g
 	}
 	if downloadReleasedPolicy == nil {
@@ -219,4 +245,33 @@ func listFrameworksNames(policyGetter getter.IPolicyGetter) []string {
 		return fw
 	}
 	return getter.NativeFrameworks
+}
+
+func getAttackTracksGetter(attackTracks, accountID string, downloadReleasedPolicy *getter.DownloadReleasedPolicy) getter.IAttackTracksGetter {
+	if len(attackTracks) > 0 {
+		return getter.NewLoadPolicy([]string{attackTracks})
+	}
+	if accountID != "" {
+		g := getter.GetKSCloudAPIConnector() // download attack tracks from Kubescape Cloud backend
+		return g
+	}
+	if downloadReleasedPolicy == nil {
+		downloadReleasedPolicy = getter.NewDownloadReleasedPolicy()
+	}
+
+	if err := downloadReleasedPolicy.SetRegoObjects(); err != nil { // if failed to pull attack tracks, fallback to cache
+		logger.L().Warning("failed to get attack tracks from github release, loading attack tracks from cache", helpers.Error(err))
+		return getter.NewLoadPolicy([]string{getter.GetDefaultPath(cautils.LocalAttackTracksFilename)})
+	}
+	return downloadReleasedPolicy
+}
+
+// getUIPrinter returns a printer that will be used to print to the program’s UI (terminal)
+func getUIPrinter(verboseMode bool, formatVersion string, attackTree bool, viewType cautils.ViewTypes) printer.IPrinter {
+	p := printerv2.NewPrettyPrinter(verboseMode, formatVersion, attackTree, viewType)
+
+	// Since the UI of the program is a CLI (Stdout), it means that it should always print to Stdout
+	p.SetWriter(os.Stdout.Name())
+
+	return p
 }

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
-	"github.com/armosec/kubescape/v2/core/meta"
-	v1 "github.com/armosec/kubescape/v2/core/meta/datastructures/v1"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/kubescape/v2/core/meta"
+	v1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +22,11 @@ func getExceptionsCmd(ks meta.IKubescape, deleteInfo *v1.Delete) *cobra.Command 
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
+
+			if err := flagValidationDelete(deleteInfo); err != nil {
+				logger.L().Fatal(err.Error())
+			}
+
 			exceptionsNames := strings.Split(args[0], ";")
 			if len(exceptionsNames) == 0 {
 				logger.L().Fatal("missing exceptions names")
@@ -31,4 +36,11 @@ func getExceptionsCmd(ks meta.IKubescape, deleteInfo *v1.Delete) *cobra.Command 
 			}
 		},
 	}
+}
+
+// Check if the flag entered are valid
+func flagValidationDelete(deleteInfo *v1.Delete) error {
+
+	// Validate the user's credentials
+	return deleteInfo.Credentials.Validate()
 }

@@ -1,23 +1,23 @@
 package opaprocessor
 
 import (
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/logger"
+	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/kubescape/v2/core/cautils"
 
-	"github.com/armosec/k8s-interface/k8sinterface"
-	"github.com/armosec/k8s-interface/workloadinterface"
-	"github.com/armosec/opa-utils/reporthandling"
-	"github.com/armosec/opa-utils/reporthandling/apis"
-	"github.com/armosec/opa-utils/reporthandling/results/v1/reportsummary"
-	resources "github.com/armosec/opa-utils/resources"
+	"github.com/kubescape/k8s-interface/k8sinterface"
+	"github.com/kubescape/k8s-interface/workloadinterface"
+	"github.com/kubescape/opa-utils/reporthandling"
+	"github.com/kubescape/opa-utils/reporthandling/apis"
+	"github.com/kubescape/opa-utils/reporthandling/results/v1/reportsummary"
+	resources "github.com/kubescape/opa-utils/resources"
 )
 
-// updateResults update the results objects and report objects. This is a critical function - DO NOT CHANGE
-/*
-	- remove sensible data
-	- adding exceptions
-	- summarize results
-*/
+// updateResults updates the results objects and report objects. This is a critical function - DO NOT CHANGE
+//
+// The function:
+//   - removes sensible data
+//   - adds exceptions
+//   - summarizes results
 func (opap *OPAProcessor) updateResults() {
 
 	// remove data from all objects
@@ -49,16 +49,6 @@ func (opap *OPAProcessor) updateResults() {
 	// map control to error
 	controlToInfoMap := mapControlToInfo(opap.ResourceToControlsMap, opap.InfoMap, opap.Report.SummaryDetails.Controls)
 	opap.Report.SummaryDetails.InitResourcesSummary(controlToInfoMap)
-	// for f := range opap.PostureReport.FrameworkReports {
-	// 	// set exceptions
-	// 	exceptions.SetFrameworkExceptions(&opap.PostureReport.FrameworkReports[f], opap.Exceptions, cautils.ClusterName)
-
-	// 	// set counters
-	// 	reporthandling.SetUniqueResourcesCounter(&opap.PostureReport.FrameworkReports[f])
-
-	// 	// set default score
-	// 	// reporthandling.SetDefaultScore(&opap.PostureReport.FrameworkReports[f])
-	// }
 }
 
 func mapControlToInfo(mapResourceToControls map[string][]string, infoMap map[string]apis.StatusInfo, controlSummary reportsummary.ControlSummaries) map[string]apis.StatusInfo {
@@ -84,14 +74,14 @@ func isEmptyResources(counters reportsummary.ICounters) bool {
 	return counters.Failed() == 0 && counters.Excluded() == 0 && counters.Passed() == 0
 }
 
-func getAllSupportedObjects(k8sResources *cautils.K8SResources, armoResources *cautils.ArmoResources, allResources map[string]workloadinterface.IMetadata, rule *reporthandling.PolicyRule) []workloadinterface.IMetadata {
+func getAllSupportedObjects(k8sResources *cautils.K8SResources, ksResources *cautils.KSResources, allResources map[string]workloadinterface.IMetadata, rule *reporthandling.PolicyRule) []workloadinterface.IMetadata {
 	k8sObjects := []workloadinterface.IMetadata{}
 	k8sObjects = append(k8sObjects, getKubernetesObjects(k8sResources, allResources, rule.Match)...)
-	k8sObjects = append(k8sObjects, getArmoObjects(armoResources, allResources, rule.DynamicMatch)...)
+	k8sObjects = append(k8sObjects, getKSObjects(ksResources, allResources, rule.DynamicMatch)...)
 	return k8sObjects
 }
 
-func getArmoObjects(k8sResources *cautils.ArmoResources, allResources map[string]workloadinterface.IMetadata, match []reporthandling.RuleMatchObjects) []workloadinterface.IMetadata {
+func getKSObjects(k8sResources *cautils.KSResources, allResources map[string]workloadinterface.IMetadata, match []reporthandling.RuleMatchObjects) []workloadinterface.IMetadata {
 	k8sObjects := []workloadinterface.IMetadata{}
 
 	for m := range match {
@@ -101,9 +91,6 @@ func getArmoObjects(k8sResources *cautils.ArmoResources, allResources map[string
 					groupResources := k8sinterface.ResourceGroupToString(groups, version, resource)
 					for _, groupResource := range groupResources {
 						if k8sObj, ok := (*k8sResources)[groupResource]; ok {
-							// if k8sObj == nil {
-							// 	logger.L().Debug(fmt.Sprintf("resource '%s' is nil, probably failed to pull the resource", groupResource))
-							// }
 							for i := range k8sObj {
 								k8sObjects = append(k8sObjects, allResources[k8sObj[i]])
 							}
@@ -127,9 +114,11 @@ func getKubernetesObjects(k8sResources *cautils.K8SResources, allResources map[s
 					groupResources := k8sinterface.ResourceGroupToString(groups, version, resource)
 					for _, groupResource := range groupResources {
 						if k8sObj, ok := (*k8sResources)[groupResource]; ok {
-							if k8sObj == nil {
-								// logger.L().Debug("skipping", helpers.String("resource", groupResource))
-							}
+							/*
+								if k8sObj == nil {
+									// logger.L().Debug("skipping", helpers.String("resource", groupResource))
+								}
+							*/
 							for i := range k8sObj {
 								k8sObjects = append(k8sObjects, allResources[k8sObj[i]])
 							}

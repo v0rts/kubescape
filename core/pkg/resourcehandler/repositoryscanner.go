@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
 	giturls "github.com/whilp/git-urls"
 	"k8s.io/utils/strings/slices"
 )
@@ -204,13 +204,13 @@ func (g *GitHubRepository) setTree() error {
 	}
 
 	// press all tree to json
-	var tree tree
-	err = json.Unmarshal([]byte(body), &tree)
+	var thisTree tree
+	err = json.Unmarshal([]byte(body), &thisTree)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal response body from '%s', reason: %s", g.treeAPI(), err.Error())
 		// return nil
 	}
-	g.tree = tree
+	g.tree = thisTree
 
 	return nil
 }

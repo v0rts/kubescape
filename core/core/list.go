@@ -6,8 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
-	metav1 "github.com/armosec/kubescape/v2/core/meta/datastructures/v1"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	metav1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling/printer"
+	v2 "github.com/kubescape/kubescape/v2/core/pkg/resultshandling/printer/v2"
+	"github.com/olekukonko/tablewriter"
 )
 
 var listFunc = map[string]func(*metav1.ListPolicies) ([]string, error){
@@ -16,7 +19,7 @@ var listFunc = map[string]func(*metav1.ListPolicies) ([]string, error){
 	"exceptions": listExceptions,
 }
 
-var listFormatFunc = map[string]func(*metav1.ListPolicies, []string){
+var listFormatFunc = map[string]func(string, []string){
 	"pretty-print": prettyPrintListFormat,
 	"json":         jsonListFormat,
 }
@@ -29,14 +32,18 @@ func ListSupportActions() []string {
 	return commands
 }
 func (ks *Kubescape) List(listPolicies *metav1.ListPolicies) error {
-	if f, ok := listFunc[listPolicies.Target]; ok {
-		policies, err := f(listPolicies)
+	if policyListerFunc, ok := listFunc[listPolicies.Target]; ok {
+		policies, err := policyListerFunc(listPolicies)
 		if err != nil {
 			return err
 		}
 		sort.Strings(policies)
 
-		listFormatFunc[listPolicies.Format](listPolicies, policies)
+		if listFormatFunction, ok := listFormatFunc[listPolicies.Format]; ok {
+			listFormatFunction(listPolicies.Target, policies)
+		} else {
+			return fmt.Errorf("Invalid format \"%s\", Supported formats: 'pretty-print'/'json' ", listPolicies.Format)
+		}
 
 		return nil
 	}
@@ -44,30 +51,26 @@ func (ks *Kubescape) List(listPolicies *metav1.ListPolicies) error {
 }
 
 func listFrameworks(listPolicies *metav1.ListPolicies) ([]string, error) {
-	tenant := getTenantConfig(&listPolicies.Credentials, "", getKubernetesApi()) // change k8sinterface
-	g := getPolicyGetter(nil, tenant.GetTenantEmail(), true, nil)
+	tenant := getTenantConfig(&listPolicies.Credentials, "", "", getKubernetesApi()) // change k8sinterface
+	policyGetter := getPolicyGetter(nil, tenant.GetTenantEmail(), true, nil)
 
-	return listFrameworksNames(g), nil
+	return listFrameworksNames(policyGetter), nil
 }
 
 func listControls(listPolicies *metav1.ListPolicies) ([]string, error) {
-	tenant := getTenantConfig(&listPolicies.Credentials, "", getKubernetesApi()) // change k8sinterface
+	tenant := getTenantConfig(&listPolicies.Credentials, "", "", getKubernetesApi()) // change k8sinterface
 
-	g := getPolicyGetter(nil, tenant.GetTenantEmail(), false, nil)
-	l := getter.ListName
-	if listPolicies.ListIDs {
-		l = getter.ListID
-	}
-	return g.ListControls(l)
+	policyGetter := getPolicyGetter(nil, tenant.GetTenantEmail(), false, nil)
+	return policyGetter.ListControls()
 }
 
 func listExceptions(listPolicies *metav1.ListPolicies) ([]string, error) {
 	// load tenant metav1
-	getTenantConfig(&listPolicies.Credentials, "", getKubernetesApi())
+	tenant := getTenantConfig(&listPolicies.Credentials, "", "", getKubernetesApi())
 
 	var exceptionsNames []string
-	armoAPI := getExceptionsGetter("")
-	exceptions, err := armoAPI.GetExceptions("")
+	ksCloudAPI := getExceptionsGetter("", tenant.GetAccountID(), nil)
+	exceptions, err := ksCloudAPI.GetExceptions("")
 	if err != nil {
 		return exceptionsNames, err
 	}
@@ -77,12 +80,73 @@ func listExceptions(listPolicies *metav1.ListPolicies) ([]string, error) {
 	return exceptionsNames, nil
 }
 
-func prettyPrintListFormat(listPolicies *metav1.ListPolicies, policies []string) {
-	sep := "\n  * "
-	fmt.Printf("Supported %s:%s%s\n", listPolicies.Target, sep, strings.Join(policies, sep))
+func prettyPrintListFormat(targetPolicy string, policies []string) {
+	if targetPolicy == "controls" {
+		prettyPrintControls(policies)
+		return
+	}
+
+	header := fmt.Sprintf("Supported %s", targetPolicy)
+
+	policyTable := tablewriter.NewWriter(printer.GetWriter(""))
+	policyTable.SetAutoWrapText(true)
+	policyTable.SetHeader([]string{header})
+	policyTable.SetHeaderLine(true)
+	policyTable.SetRowLine(true)
+	data := v2.Matrix{}
+
+	controlRows := generatePolicyRows(policies)
+	data = append(data, controlRows...)
+
+	policyTable.SetAlignment(tablewriter.ALIGN_CENTER)
+	policyTable.AppendBulk(data)
+	policyTable.Render()
 }
 
-func jsonListFormat(listPolicies *metav1.ListPolicies, policies []string) {
+func jsonListFormat(targetPolicy string, policies []string) {
 	j, _ := json.MarshalIndent(policies, "", "  ")
+
 	fmt.Printf("%s\n", j)
+}
+
+func prettyPrintControls(policies []string) {
+	controlsTable := tablewriter.NewWriter(printer.GetWriter(""))
+	controlsTable.SetAutoWrapText(true)
+	controlsTable.SetHeader([]string{"Control ID", "Control Name", "Docs", "Frameworks"})
+	controlsTable.SetHeaderLine(true)
+	controlsTable.SetRowLine(true)
+	data := v2.Matrix{}
+
+	controlRows := generateControlRows(policies)
+	data = append(data, controlRows...)
+
+	controlsTable.AppendBulk(data)
+	controlsTable.Render()
+}
+
+func generateControlRows(policies []string) [][]string {
+	rows := [][]string{}
+
+	for _, control := range policies {
+		idAndControlAndFrameworks := strings.Split(control, "|")
+		id, control, framework := idAndControlAndFrameworks[0], idAndControlAndFrameworks[1], idAndControlAndFrameworks[2]
+
+		docs := cautils.GetControlLink(id)
+
+		currentRow := []string{id, control, docs, framework}
+
+		rows = append(rows, currentRow)
+	}
+
+	return rows
+}
+
+func generatePolicyRows(policies []string) [][]string {
+	rows := [][]string{}
+
+	for _, policy := range policies {
+		currentRow := []string{policy}
+		rows = append(rows, currentRow)
+	}
+	return rows
 }

@@ -1,22 +1,24 @@
-package v2
+package reporter
 
 import (
 	"net/url"
 
-	"github.com/armosec/kubescape/v2/core/cautils"
-	"github.com/armosec/kubescape/v2/core/cautils/getter"
-	reporthandlingv2 "github.com/armosec/opa-utils/reporthandling/v2"
 	"github.com/google/uuid"
+	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
+	reporthandlingv2 "github.com/kubescape/opa-utils/reporthandling/v2"
 )
 
 func (report *ReportEventReceiver) initEventReceiverURL() {
 	urlObj := url.URL{}
-	urlObj.Host = getter.GetArmoAPIConnector().GetReportReceiverURL()
-	ParseHost(&urlObj)
+	urlObj.Host = getter.GetKSCloudAPIConnector().GetCloudReportURL()
+	parseHost(&urlObj)
+
 	urlObj.Path = "/k8s/v2/postureReport"
 	q := urlObj.Query()
 	q.Add("customerGUID", uuid.MustParse(report.customerGUID).String())
-	q.Add("clusterName", report.clusterName)
+	q.Add("contextName", report.clusterName)
+	q.Add("clusterName", report.clusterName) // deprecated
 
 	urlObj.RawQuery = q.Encode()
 
@@ -43,8 +45,7 @@ func (report *ReportEventReceiver) setSubReport(opaSessionObj *cautils.OPASessio
 	if opaSessionObj.Metadata != nil {
 		reportObj.Metadata = *opaSessionObj.Metadata
 		if opaSessionObj.Metadata.ContextMetadata.ClusterContextMetadata != nil {
-			reportObj.ClusterCloudProvider = opaSessionObj.Metadata.ContextMetadata.ClusterContextMetadata.CloudProvider // DEPRECATED
-			reportObj.Metadata.ClusterMetadata = *opaSessionObj.Metadata.ContextMetadata.ClusterContextMetadata
+			reportObj.ClusterCloudProvider = opaSessionObj.Metadata.ContextMetadata.ClusterContextMetadata.CloudProvider // DEPRECATED - left here as fallback
 		}
 	}
 	return reportObj
