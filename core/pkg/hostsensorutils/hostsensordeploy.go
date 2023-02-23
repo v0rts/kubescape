@@ -1,6 +1,7 @@
 package hostsensorutils
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -22,7 +23,8 @@ import (
 
 var (
 	//go:embed hostsensor.yaml
-	hostSensorYAML string
+	hostSensorYAML      string
+	namespaceWasPresent bool
 )
 
 const PortName string = "scanner"
@@ -69,7 +71,7 @@ func NewHostSensorHandler(k8sObj *k8sinterface.KubernetesApi, hostSensorYAMLFile
 	return hsh, nil
 }
 
-func (hsh *HostSensorHandler) Init() error {
+func (hsh *HostSensorHandler) Init(ctx context.Context) error {
 	// deploy the YAML
 	// store namespace + port
 	// store pod names
@@ -79,19 +81,42 @@ func (hsh *HostSensorHandler) Init() error {
 
 	cautils.StartSpinner()
 
-	if err := hsh.applyYAML(); err != nil {
+	if err := hsh.applyYAML(ctx); err != nil {
 		cautils.StopSpinner()
 		return fmt.Errorf("failed to apply host scanner YAML, reason: %v", err)
 	}
-	hsh.populatePodNamesToNodeNames()
+	hsh.populatePodNamesToNodeNames(ctx)
 	if err := hsh.checkPodForEachNode(); err != nil {
-		logger.L().Error("failed to validate host-sensor pods status", helpers.Error(err))
+		logger.L().Ctx(ctx).Error("failed to validate host-sensor pods status", helpers.Error(err))
 	}
 	cautils.StopSpinner()
 	return nil
 }
 
-func (hsh *HostSensorHandler) applyYAML() error {
+// checkNamespaceWasPresent check if the given namespace was already present on kubernetes and in "Active" state.
+// Return true in case it find the namespace on the list, false otherwise.
+// In case we have some error with the kubernetes APIs, it returns an error.
+func (hsh *HostSensorHandler) checkNamespaceWasPresent(namespace string) bool {
+	ns, err := hsh.k8sObj.KubernetesClient.
+		CoreV1().
+		Namespaces().
+		Get(hsh.k8sObj.Context, namespace, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	// check also if it is in "Active" state.
+	if ns.Status.Phase != corev1.NamespaceActive {
+		return false
+	}
+	return true
+}
+
+// namespaceWasPresent return the namespaceWasPresent variable value.
+func (hsh *HostSensorHandler) namespaceWasPresent() bool {
+	return namespaceWasPresent
+}
+
+func (hsh *HostSensorHandler) applyYAML(ctx context.Context) error {
 	workloads, err := cautils.ReadFile([]byte(hostSensorYAML), cautils.YAML_FILE_FORMAT)
 	if err != nil {
 		return fmt.Errorf("failed to read YAML files, reason: %v", err)
@@ -105,6 +130,8 @@ func (hsh *HostSensorHandler) applyYAML() error {
 			break
 		}
 	}
+	// check if namespace was already present on kubernetes
+	namespaceWasPresent = hsh.checkNamespaceWasPresent(namespaceName)
 
 	// Update workload data before applying
 	for i := range workloads {
@@ -121,7 +148,7 @@ func (hsh *HostSensorHandler) applyYAML() error {
 			containers, err := w.GetContainers()
 			if err != nil {
 				if erra := hsh.tearDownNamespace(namespaceName); erra != nil {
-					logger.L().Warning("failed to tear down namespace", helpers.Error(erra))
+					logger.L().Ctx(ctx).Warning("failed to tear down namespace", helpers.Error(erra))
 				}
 				return fmt.Errorf("container not found in DaemonSet: %v", err)
 			}
@@ -146,7 +173,7 @@ func (hsh *HostSensorHandler) applyYAML() error {
 		}
 		if e != nil {
 			if erra := hsh.tearDownNamespace(namespaceName); erra != nil {
-				logger.L().Warning("failed to tear down namespace", helpers.Error(erra))
+				logger.L().Ctx(ctx).Warning("failed to tear down namespace", helpers.Error(erra))
 			}
 			return fmt.Errorf("failed to create/update YAML, reason: %v", e)
 		}
@@ -156,14 +183,14 @@ func (hsh *HostSensorHandler) applyYAML() error {
 			b, err := json.Marshal(newWorkload.GetObject())
 			if err != nil {
 				if erra := hsh.tearDownNamespace(namespaceName); erra != nil {
-					logger.L().Warning("failed to tear down namespace", helpers.Error(erra))
+					logger.L().Ctx(ctx).Warning("failed to tear down namespace", helpers.Error(erra))
 				}
 				return fmt.Errorf("failed to Marshal YAML of DaemonSet, reason: %v", err)
 			}
 			var ds appsv1.DaemonSet
 			if err := json.Unmarshal(b, &ds); err != nil {
 				if erra := hsh.tearDownNamespace(namespaceName); erra != nil {
-					logger.L().Warning("failed to tear down namespace", helpers.Error(erra))
+					logger.L().Ctx(ctx).Warning("failed to tear down namespace", helpers.Error(erra))
 				}
 				return fmt.Errorf("failed to Unmarshal YAML of DaemonSet, reason: %v", err)
 			}
@@ -200,7 +227,7 @@ func (hsh *HostSensorHandler) checkPodForEachNode() error {
 }
 
 // initiating routine to keep pod list updated
-func (hsh *HostSensorHandler) populatePodNamesToNodeNames() {
+func (hsh *HostSensorHandler) populatePodNamesToNodeNames(ctx context.Context) {
 
 	go func() {
 		var watchRes watch.Interface
@@ -210,7 +237,7 @@ func (hsh *HostSensorHandler) populatePodNamesToNodeNames() {
 			LabelSelector: fmt.Sprintf("name=%s", hsh.DaemonSet.Spec.Template.Labels["name"]),
 		})
 		if err != nil {
-			logger.L().Error("failed to watch over daemonset pods - are we missing watch pods permissions?", helpers.Error(err))
+			logger.L().Ctx(ctx).Error("failed to watch over daemonset pods - are we missing watch pods permissions?", helpers.Error(err))
 		}
 		if watchRes == nil {
 			return
@@ -220,12 +247,12 @@ func (hsh *HostSensorHandler) populatePodNamesToNodeNames() {
 			if !ok {
 				continue
 			}
-			go hsh.updatePodInListAtomic(eve.Type, pod)
+			go hsh.updatePodInListAtomic(ctx, eve.Type, pod)
 		}
 	}()
 }
 
-func (hsh *HostSensorHandler) updatePodInListAtomic(eventType watch.EventType, podObj *corev1.Pod) {
+func (hsh *HostSensorHandler) updatePodInListAtomic(ctx context.Context, eventType watch.EventType, podObj *corev1.Pod) {
 	hsh.podListLock.Lock()
 	defer hsh.podListLock.Unlock()
 
@@ -246,7 +273,7 @@ func (hsh *HostSensorHandler) updatePodInListAtomic(eventType watch.EventType, p
 					len(podObj.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchFields[0].Values) > 0 {
 					nodeName = podObj.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchFields[0].Values[0]
 				}
-				logger.L().Warning("One host-sensor pod is unable to schedule on node. We will fail to collect the data from this node",
+				logger.L().Ctx(ctx).Warning("One host-sensor pod is unable to schedule on node. We will fail to collect the data from this node",
 					helpers.String("message", podObj.Status.Conditions[0].Message),
 					helpers.String("nodeName", nodeName),
 					helpers.String("podName", podObj.ObjectMeta.Name))
@@ -263,7 +290,11 @@ func (hsh *HostSensorHandler) updatePodInListAtomic(eventType watch.EventType, p
 }
 
 func (hsh *HostSensorHandler) tearDownNamespace(namespace string) error {
-
+	// if namespace was already present on kubernetes (before installing host-scanner),
+	// then we shouldn't delete it.
+	if hsh.namespaceWasPresent() {
+		return nil
+	}
 	if err := hsh.k8sObj.KubernetesClient.CoreV1().Namespaces().Delete(hsh.k8sObj.Context, namespace, metav1.DeleteOptions{GracePeriodSeconds: &hsh.gracePeriod}); err != nil {
 		return fmt.Errorf("failed to delete host-sensor namespace: %v", err)
 	}
@@ -272,9 +303,11 @@ func (hsh *HostSensorHandler) tearDownNamespace(namespace string) error {
 
 func (hsh *HostSensorHandler) TearDown() error {
 	namespace := hsh.GetNamespace()
+	// delete DaemonSet
 	if err := hsh.k8sObj.KubernetesClient.AppsV1().DaemonSets(hsh.GetNamespace()).Delete(hsh.k8sObj.Context, hsh.DaemonSet.Name, metav1.DeleteOptions{GracePeriodSeconds: &hsh.gracePeriod}); err != nil {
 		return fmt.Errorf("failed to delete host-sensor daemonset: %v", err)
 	}
+	// delete Namespace
 	if err := hsh.tearDownNamespace(namespace); err != nil {
 		return fmt.Errorf("failed to delete host-sensor daemonset: %v", err)
 	}

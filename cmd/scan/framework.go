@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	logger "github.com/kubescape/go-logger"
 	"github.com/kubescape/go-logger/helpers"
 	"github.com/kubescape/kubescape/v2/core/cautils"
+	"github.com/kubescape/kubescape/v2/core/cautils/getter"
 	"github.com/kubescape/kubescape/v2/core/meta"
 
 	"github.com/spf13/cobra"
@@ -71,6 +73,9 @@ func getFrameworkCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comm
 			}
 			scanInfo.FrameworkScan = true
 
+			// We do not scan all frameworks by default when triggering scan from the CLI
+			scanInfo.ScanAll = false
+
 			var frameworks []string
 
 			if len(args) == 0 { // scan all frameworks
@@ -80,11 +85,12 @@ func getFrameworkCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comm
 				frameworks = strings.Split(args[0], ",")
 				if cautils.StringInSlice(frameworks, "all") != cautils.ValueNotFound {
 					scanInfo.ScanAll = true
-					frameworks = []string{}
+					frameworks = getter.NativeFrameworks
 				}
 				if len(args) > 1 {
 					if len(args[1:]) == 0 || args[1] != "-" {
 						scanInfo.InputPatterns = args[1:]
+						logger.L().Debug("List of input files", helpers.Interface("patterns", scanInfo.InputPatterns))
 					} else { // store stdin to file - do NOT move to separate function !!
 						tempFile, err := os.CreateTemp(".", "tmp-kubescape*.yaml")
 						if err != nil {
@@ -103,12 +109,13 @@ func getFrameworkCmd(ks meta.IKubescape, scanInfo *cautils.ScanInfo) *cobra.Comm
 
 			scanInfo.SetPolicyIdentifiers(frameworks, apisv1.KindFramework)
 
-			results, err := ks.Scan(scanInfo)
+			ctx := context.TODO()
+			results, err := ks.Scan(ctx, scanInfo)
 			if err != nil {
 				logger.L().Fatal(err.Error())
 			}
 
-			if err = results.HandleResults(); err != nil {
+			if err = results.HandleResults(ctx); err != nil {
 				logger.L().Fatal(err.Error())
 			}
 			if !scanInfo.VerboseMode {
@@ -161,14 +168,14 @@ func countersExceedSeverityThreshold(severityCounters reportsummary.ISeverityCou
 }
 
 // terminateOnExceedingSeverity terminates the application on exceeding severity
-func terminateOnExceedingSeverity(scanInfo *cautils.ScanInfo, l logger.ILogger) {
+func terminateOnExceedingSeverity(scanInfo *cautils.ScanInfo, l helpers.ILogger) {
 	l.Fatal("result exceeds severity threshold", helpers.String("set severity threshold", scanInfo.FailThresholdSeverity))
 }
 
 // enforceSeverityThresholds ensures that the scan results are below the defined severity threshold
 //
 // The function forces the application to terminate with an exit code 1 if at least one control failed control that exceeds the set severity threshold
-func enforceSeverityThresholds(severityCounters reportsummary.ISeverityCounters, scanInfo *cautils.ScanInfo, onExceed func(*cautils.ScanInfo, logger.ILogger)) {
+func enforceSeverityThresholds(severityCounters reportsummary.ISeverityCounters, scanInfo *cautils.ScanInfo, onExceed func(*cautils.ScanInfo, helpers.ILogger)) {
 	// If a severity threshold is not set, we don’t need to enforce it
 	if scanInfo.FailThresholdSeverity == "" {
 		return

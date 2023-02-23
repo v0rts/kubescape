@@ -1,25 +1,28 @@
 package opaprocessor
 
 import (
-	logger "github.com/kubescape/go-logger"
-	"github.com/kubescape/kubescape/v2/core/cautils"
+	"context"
 
+	logger "github.com/kubescape/go-logger"
 	"github.com/kubescape/k8s-interface/k8sinterface"
 	"github.com/kubescape/k8s-interface/workloadinterface"
+	"github.com/kubescape/kubescape/v2/core/cautils"
 	"github.com/kubescape/opa-utils/reporthandling"
 	"github.com/kubescape/opa-utils/reporthandling/apis"
 	"github.com/kubescape/opa-utils/reporthandling/results/v1/reportsummary"
 	resources "github.com/kubescape/opa-utils/resources"
+	"go.opentelemetry.io/otel"
 )
 
 // updateResults updates the results objects and report objects. This is a critical function - DO NOT CHANGE
 //
 // The function:
 //   - removes sensible data
-//   - adds exceptions
+//   - adds exceptions (and updates controls status)
 //   - summarizes results
-func (opap *OPAProcessor) updateResults() {
-
+func (opap *OPAProcessor) updateResults(ctx context.Context) {
+	ctx, span := otel.Tracer("").Start(ctx, "OPAProcessor.updateResults")
+	defer span.End()
 	// remove data from all objects
 	for i := range opap.AllResources {
 		removeData(opap.AllResources[i])
@@ -32,7 +35,7 @@ func (opap *OPAProcessor) updateResults() {
 
 		// first set exceptions
 		if resource, ok := opap.AllResources[i]; ok {
-			t.SetExceptions(resource, opap.Exceptions, cautils.ClusterName)
+			t.SetExceptions(resource, opap.Exceptions, cautils.ClusterName, opap.AllPolicies.Controls)
 		}
 
 		// summarize the resources
@@ -71,7 +74,7 @@ func mapControlToInfo(mapResourceToControls map[string][]string, infoMap map[str
 }
 
 func isEmptyResources(counters reportsummary.ICounters) bool {
-	return counters.Failed() == 0 && counters.Excluded() == 0 && counters.Passed() == 0
+	return counters.Failed() == 0 && counters.Skipped() == 0 && counters.Passed() == 0
 }
 
 func getAllSupportedObjects(k8sResources *cautils.K8SResources, ksResources *cautils.KSResources, allResources map[string]workloadinterface.IMetadata, rule *reporthandling.PolicyRule) []workloadinterface.IMetadata {
@@ -156,10 +159,10 @@ func filterOutChildResources(objects []workloadinterface.IMetadata, match []repo
 	}
 	return response
 }
-func getRuleDependencies() (map[string]string, error) {
+func getRuleDependencies(ctx context.Context) (map[string]string, error) {
 	modules := resources.LoadRegoModules()
 	if len(modules) == 0 {
-		logger.L().Warning("failed to load rule dependencies")
+		logger.L().Ctx(ctx).Warning("failed to load rule dependencies")
 	}
 	return modules, nil
 }

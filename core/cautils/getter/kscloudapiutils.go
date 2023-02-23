@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-var NativeFrameworks = []string{"nsa", "mitre", "armobest", "devopsbest"}
+var NativeFrameworks = []string{"allcontrols", "nsa", "mitre"}
 
 func (api *KSCloudAPI) getFrameworkURL(frameworkName string) string {
 	u := url.URL{}
@@ -183,4 +183,17 @@ func parseHost(host string) (string, string) {
 
 	// default scheme
 	return "https", strings.Replace(host, "https://", "", 1)
+}
+
+func isNativeFramework(framework string) bool {
+	return contains(NativeFrameworks, framework)
+}
+
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if strings.EqualFold(v, str) {
+			return true
+		}
+	}
+	return false
 }

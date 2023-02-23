@@ -5,9 +5,10 @@ import (
 	"strings"
 
 	"github.com/armosec/armoapi-go/armotypes"
-	"github.com/kubescape/opa-utils/gitregostore"
 	"github.com/kubescape/opa-utils/reporthandling"
 	"github.com/kubescape/opa-utils/reporthandling/attacktrack/v1alpha1"
+
+	"github.com/kubescape/regolibrary/gitregostore"
 )
 
 // =======================================================================================================================
@@ -103,19 +104,6 @@ func (drp *DownloadReleasedPolicy) SetRegoObjects() error {
 		return nil
 	}
 	return drp.gs.SetRegoObjects()
-}
-
-func isNativeFramework(framework string) bool {
-	return contains(NativeFrameworks, framework)
-}
-
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if strings.EqualFold(v, str) {
-			return true
-		}
-	}
-	return false
 }
 
 func (drp *DownloadReleasedPolicy) GetExceptions(clusterName string) ([]armotypes.PostureExceptionPolicy, error) {
