@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/schema v1.2.0
-	github.com/kubescape/go-logger v0.0.9
+	github.com/kubescape/go-logger v0.0.10
 	github.com/kubescape/k8s-interface v0.0.99
 	github.com/kubescape/kubescape/v2 v2.0.0-00010101000000-000000000000
 	github.com/kubescape/opa-utils v0.0.238
@@ -216,7 +216,7 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.15.11 // indirect
 	github.com/kubescape/go-git-url v0.0.24 // indirect
-	github.com/kubescape/rbac-utils v0.0.19 // indirect
+	github.com/kubescape/rbac-utils v0.0.20 // indirect
 	github.com/kubescape/regolibrary v1.0.250 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect

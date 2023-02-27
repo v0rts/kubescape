@@ -38,9 +38,6 @@ spec:
       containers:
       - name: host-sensor
         image: quay.io/kubescape/host-scanner:v1.0.45
-        env:
-        - name: OTEL_COLLECTOR_SVC
-          value: "otel-collector.kubescape:4317"
         securityContext:
           allowPrivilegeEscalation: true
           privileged: true
@@ -48,7 +45,6 @@ spec:
           procMount: Unmasked
         ports:
           - name: scanner # Do not change port name
-            hostPort: 7888
             containerPort: 7888
             protocol: TCP
         resources:
@@ -75,6 +71,5 @@ spec:
           path: /
           type: Directory
         name: host-filesystem
-      hostNetwork: true
       hostPID: true
       hostIPC: true
