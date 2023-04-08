@@ -14,6 +14,7 @@ import (
 	"github.com/kubescape/k8s-interface/workloadinterface"
 	"github.com/kubescape/kubescape/v2/core/cautils"
 	"github.com/kubescape/kubescape/v2/core/cautils/getter"
+	"github.com/kubescape/kubescape/v2/core/pkg/resultshandling/reporter"
 	"github.com/kubescape/opa-utils/reporthandling"
 	"github.com/kubescape/opa-utils/reporthandling/results/v1/prioritization"
 	"github.com/kubescape/opa-utils/reporthandling/results/v1/resourcesresults"
@@ -30,6 +31,8 @@ const (
 	SubmitContextRBAC       SubmitContext = "rbac"
 	SubmitContextRepository SubmitContext = "repository"
 )
+
+var _ reporter.IReport = &ReportEventReceiver{}
 
 type ReportEventReceiver struct {
 	httpClient         *http.Client
@@ -59,24 +62,22 @@ func (report *ReportEventReceiver) Submit(ctx context.Context, opaSessionObj *ca
 	ctx, span := otel.Tracer("").Start(ctx, "reportEventReceiver.Submit")
 	defer span.End()
 	if report.customerGUID == "" {
-		logger.L().Ctx(ctx).Warning("failed to publish results. Reason: Unknown accout ID. Run kubescape with the '--account <account ID>' flag. Contact ARMO team for more details")
+		logger.L().Ctx(ctx).Error("failed to publish results. Reason: Unknown account ID. Run kubescape with the '--account <account ID>' flag. Contact ARMO team for more details")
 		return nil
 	}
 	if opaSessionObj.Metadata.ScanMetadata.ScanningTarget == reporthandlingv2.Cluster && report.clusterName == "" {
-		logger.L().Ctx(ctx).Warning("failed to publish results because the cluster name is Unknown. If you are scanning YAML files the results are not submitted to the Kubescape SaaS")
+		logger.L().Ctx(ctx).Error("failed to publish results because the cluster name is Unknown. If you are scanning YAML files the results are not submitted to the Kubescape SaaS")
 		return nil
 	}
 
-	err := report.prepareReport(opaSessionObj)
-	if err == nil {
-		report.generateMessage()
-	} else {
-		err = fmt.Errorf("failed to submit scan results. url: '%s', reason: %s", report.GetURL(), err.Error())
+	if err := report.prepareReport(opaSessionObj); err != nil {
+		return fmt.Errorf("failed to submit scan results. url: '%s', reason: %s", report.GetURL(), err.Error())
 	}
 
+	report.generateMessage()
 	logger.L().Debug("", helpers.String("account ID", report.customerGUID))
 
-	return err
+	return nil
 }
 
 func (report *ReportEventReceiver) SetCustomerGUID(customerGUID string) {
@@ -120,13 +121,6 @@ func (report *ReportEventReceiver) GetURL() string {
 
 	parseHost(&u)
 	report.addPathURL(&u)
-
-	q := u.Query()
-	q.Add("utm_source", "GitHub")
-	q.Add("utm_medium", "CLI")
-	q.Add("utm_campaign", "Submit")
-
-	u.RawQuery = q.Encode()
 
 	return u.String()
 
@@ -262,7 +256,9 @@ func (report *ReportEventReceiver) generateMessage() {
 }
 
 func (report *ReportEventReceiver) DisplayReportURL() {
-	if report.message != "" {
+
+	// print if logger level is lower than warning (debug/info)
+	if report.message != "" && helpers.ToLevel(logger.L().GetLevel()) < helpers.WarningLevel {
 		cautils.InfoTextDisplay(os.Stderr, fmt.Sprintf("\n\n%s\n\n", report.message))
 	}
 }
@@ -286,6 +282,10 @@ func (report *ReportEventReceiver) addPathURL(urlObj *url.URL) {
 	q := urlObj.Query()
 	q.Add("invitationToken", report.token)
 	q.Add("customerGUID", report.customerGUID)
+
+	// Adding utm parameters
+	q.Add("utm_source", "ARMOgithub")
+	q.Add("utm_medium", "createaccount")
 	urlObj.RawQuery = q.Encode()
 
 }

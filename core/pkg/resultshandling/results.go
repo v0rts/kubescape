@@ -30,8 +30,8 @@ func NewResultsHandler(reporterObj reporter.IReport, printerObjs []printer.IPrin
 	}
 }
 
-// GetScore returns the result’s risk score
-func (rh *ResultsHandler) GetRiskScore() float32 {
+// GetComplianceScore returns the result’s compliance score
+func (rh *ResultsHandler) GetComplianceScore() float32 {
 	return rh.scanData.Report.SummaryDetails.Score
 }
 
@@ -74,12 +74,12 @@ func (rh *ResultsHandler) HandleResults(ctx context.Context) error {
 	// score - a summary of the results—can always be seen at the end
 	// of output
 	rh.uiPrinter.ActionPrint(ctx, rh.scanData)
-	rh.uiPrinter.Score(rh.GetRiskScore())
+	rh.uiPrinter.Score(rh.GetComplianceScore())
 
 	// Then print to output files
 	for _, printer := range rh.printerObjs {
 		printer.ActionPrint(ctx, rh.scanData)
-		printer.Score(rh.GetRiskScore())
+		printer.Score(rh.GetComplianceScore())
 	}
 
 	// We should submit only after printing results, so a user can see
@@ -116,7 +116,7 @@ func NewPrinter(ctx context.Context, printFormat, formatVersion string, verboseM
 		return printerv2.NewSARIFPrinter()
 	default:
 		if printFormat != printer.PrettyFormat {
-			logger.L().Ctx(ctx).Error(fmt.Sprintf("Invalid format \"%s\", default format \"pretty-printer\" is applied", printFormat))
+			logger.L().Ctx(ctx).Warning(fmt.Sprintf("Invalid format \"%s\", default format \"pretty-printer\" is applied", printFormat))
 		}
 		return printerv2.NewPrettyPrinter(verboseMode, formatVersion, attackTree, viewType)
 	}

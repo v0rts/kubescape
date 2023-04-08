@@ -14,7 +14,7 @@ const noOfWorkers int = 10
 type job struct {
 	podName     string
 	nodeName    string
-	requestKind string
+	requestKind scannerResource
 	path        string
 }
 
@@ -25,7 +25,7 @@ type workerPool struct {
 	noOfWorkers int
 }
 
-func NewWorkerPool() workerPool {
+func newWorkerPool() workerPool {
 	wp := workerPool{}
 	wp.noOfWorkers = noOfWorkers
 	wp.init()
@@ -48,10 +48,10 @@ func (wp *workerPool) hostSensorWorker(ctx context.Context, hsh *HostSensorHandl
 	for job := range wp.jobs {
 		hostSensorDataEnvelope, err := hsh.getResourcesFromPod(job.podName, job.nodeName, job.requestKind, job.path)
 		if err != nil {
-			logger.L().Ctx(ctx).Error("failed to get data", helpers.String("path", job.path), helpers.String("podName", job.podName), helpers.Error(err))
-		} else {
-			wp.results <- hostSensorDataEnvelope
+			logger.L().Ctx(ctx).Warning("failed to get data", helpers.String("path", job.path), helpers.String("podName", job.podName), helpers.Error(err))
+			continue
 		}
+		wp.results <- hostSensorDataEnvelope
 	}
 }
 
@@ -80,7 +80,7 @@ func (wp *workerPool) hostSensorGetResults(result *[]hostsensor.HostSensorDataEn
 	}()
 }
 
-func (wp *workerPool) hostSensorApplyJobs(podList map[string]string, path, requestKind string) {
+func (wp *workerPool) hostSensorApplyJobs(podList map[string]string, path string, requestKind scannerResource) {
 	go func() {
 		for podName, nodeName := range podList {
 			thisJob := job{

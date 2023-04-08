@@ -66,8 +66,9 @@ func getRBACHandler(tenantConfig cautils.ITenantConfig, k8s *k8sinterface.Kubern
 }
 
 func getReporter(ctx context.Context, tenantConfig cautils.ITenantConfig, reportID string, submit, fwScan bool, scanningContext cautils.ScanningContext) reporter.IReport {
-	ctx, span := otel.Tracer("").Start(ctx, "getReporter")
+	_, span := otel.Tracer("").Start(ctx, "getReporter")
 	defer span.End()
+
 	if submit {
 		submitData := reporterv2.SubmitContextScan
 		if scanningContext != cautils.ContextCluster {
@@ -77,7 +78,7 @@ func getReporter(ctx context.Context, tenantConfig cautils.ITenantConfig, report
 	}
 	if tenantConfig.GetAccountID() == "" {
 		// Add link only when scanning a cluster using a framework
-		return reporterv2.NewReportMock("https://hub.armosec.io/docs/installing-kubescape", "run kubescape with the '--account' flag")
+		return reporterv2.NewReportMock("", "")
 	}
 	var message string
 	if !fwScan {
@@ -90,6 +91,7 @@ func getReporter(ctx context.Context, tenantConfig cautils.ITenantConfig, report
 func getResourceHandler(ctx context.Context, scanInfo *cautils.ScanInfo, tenantConfig cautils.ITenantConfig, k8s *k8sinterface.KubernetesApi, hostSensorHandler hostsensorutils.IHostSensor, registryAdaptors *resourcehandler.RegistryAdaptors) resourcehandler.IResourceHandler {
 	ctx, span := otel.Tracer("").Start(ctx, "getResourceHandler")
 	defer span.End()
+
 	if len(scanInfo.InputPatterns) > 0 || k8s == nil {
 		// scanInfo.HostSensor.SetBool(false)
 		return resourcehandler.NewFileResourceHandler(ctx, scanInfo.InputPatterns, registryAdaptors)
@@ -99,26 +101,38 @@ func getResourceHandler(ctx context.Context, scanInfo *cautils.ScanInfo, tenantC
 	return resourcehandler.NewK8sResourceHandler(k8s, getFieldSelector(scanInfo), hostSensorHandler, rbacObjects, registryAdaptors)
 }
 
+// getHostSensorHandler yields a IHostSensor that knows how to collect a host's scanned resources.
+//
+// A noop sensor is returned whenever host scanning is disabled or an error prevented the scanner to properly deploy.
 func getHostSensorHandler(ctx context.Context, scanInfo *cautils.ScanInfo, k8s *k8sinterface.KubernetesApi) hostsensorutils.IHostSensor {
-	if !k8sinterface.IsConnectedToCluster() || k8s == nil {
-		return &hostsensorutils.HostSensorHandlerMock{}
-	}
+	const wantsHostSensorControls = true // defaults to disabling the scanner if not explictly enabled (TODO(fredbi): should be addressed by injecting ScanInfo defaults)
+	hostSensorVal := scanInfo.HostSensorEnabled.Get()
 
-	hasHostSensorControls := true
-	// we need to determined which controls needs host scanner
-	if scanInfo.HostSensorEnabled.Get() == nil && hasHostSensorControls {
-		scanInfo.HostSensorEnabled.SetBool(false) // default - do not run host scanner
-	}
-	if hostSensorVal := scanInfo.HostSensorEnabled.Get(); hostSensorVal != nil && *hostSensorVal {
+	switch {
+	case !k8sinterface.IsConnectedToCluster() || k8s == nil: // TODO(fred): fix race condition on global KSConfig there
+		return hostsensorutils.NewHostSensorHandlerMock()
+
+	case hostSensorVal != nil && *hostSensorVal:
 		hostSensorHandler, err := hostsensorutils.NewHostSensorHandler(k8s, scanInfo.HostSensorYamlPath)
 		if err != nil {
 			logger.L().Ctx(ctx).Warning(fmt.Sprintf("failed to create host scanner: %s", err.Error()))
-			return &hostsensorutils.HostSensorHandlerMock{}
+
+			return hostsensorutils.NewHostSensorHandlerMock()
 		}
+
 		return hostSensorHandler
+
+	case hostSensorVal == nil && wantsHostSensorControls:
+		// TODO: we need to determine which controls need the host scanner
+		scanInfo.HostSensorEnabled.SetBool(false)
+
+		fallthrough
+
+	default:
+		return hostsensorutils.NewHostSensorHandlerMock()
 	}
-	return &hostsensorutils.HostSensorHandlerMock{}
 }
+
 func getFieldSelector(scanInfo *cautils.ScanInfo) resourcehandler.IFieldSelector {
 	if scanInfo.IncludeNamespaces != "" {
 		return resourcehandler.NewIncludeSelector(scanInfo.IncludeNamespaces)

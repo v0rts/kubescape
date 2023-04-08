@@ -108,7 +108,7 @@ func (jp *JunitPrinter) SetWriter(ctx context.Context, outputFile string) {
 }
 
 func (jp *JunitPrinter) Score(score float32) {
-	fmt.Fprintf(os.Stderr, "\nOverall risk-score (0- Excellent, 100- All failed): %d\n", cautils.Float32ToInt(score))
+	fmt.Fprintf(os.Stderr, "\nOverall compliance-score (100- Excellent, 0- All failed): %d\n", cautils.Float32ToInt(score))
 }
 
 func (jp *JunitPrinter) ActionPrint(ctx context.Context, opaSessionObj *cautils.OPASessionObj) {
@@ -120,9 +120,9 @@ func (jp *JunitPrinter) ActionPrint(ctx context.Context, opaSessionObj *cautils.
 
 	if _, err := jp.writer.Write(postureReportStr); err != nil {
 		logger.L().Ctx(ctx).Error("failed to write results", helpers.Error(err))
-	} else {
-		printer.LogOutputFile(jp.writer.Name())
+		return
 	}
+	printer.LogOutputFile(jp.writer.Name())
 }
 
 func testsSuites(results *cautils.OPASessionObj) *JUnitTestSuites {
@@ -221,11 +221,11 @@ func resourceToString(resource workloadinterface.IMetadata, sourcePath string) s
 	return s
 }
 
-func properties(riskScore float32) []JUnitProperty {
+func properties(complianceScore float32) []JUnitProperty {
 	return []JUnitProperty{
 		{
-			Name:  "riskScore",
-			Value: fmt.Sprintf("%.2f", riskScore),
+			Name:  "complianceScore",
+			Value: fmt.Sprintf("%.2f", complianceScore),
 		},
 	}
 }

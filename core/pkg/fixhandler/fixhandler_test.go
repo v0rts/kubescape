@@ -8,6 +8,7 @@ import (
 
 	logger "github.com/kubescape/go-logger"
 	metav1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
+	"github.com/kubescape/kubescape/v2/internal/testutils"
 	reporthandlingv2 "github.com/kubescape/opa-utils/reporthandling/v2"
 	"github.com/mikefarah/yq/v4/pkg/yqlib"
 	"github.com/stretchr/testify/assert"
@@ -30,11 +31,6 @@ func NewFixHandlerMock() (*FixHandler, error) {
 		reportObj:     &reporthandlingv2.PostureReport{},
 		localBasePath: "",
 	}, nil
-}
-
-func getTestdataPath() string {
-	currentDir, _ := os.Getwd()
-	return filepath.Join(currentDir, "testdata")
 }
 
 func getTestCases() []indentationTestCase {
@@ -123,7 +119,7 @@ func getTestCases() []indentationTestCase {
 		},
 		{
 			"removes/tc-04-00-input.yaml",
-			`del(select(di==0).spec.containers[0].securityContext) | 
+			`del(select(di==0).spec.containers[0].securityContext) |
 			 del(select(di==1).spec.containers[1])`,
 			"removes/tc-04-01-expected.yaml",
 		},
@@ -177,9 +173,8 @@ func TestApplyFixKeepsFormatting(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.inputFile, func(t *testing.T) {
 			getTestDataPath := func(filename string) string {
-				currentDir, _ := os.Getwd()
 				currentFile := "testdata/" + filename
-				return filepath.Join(currentDir, currentFile)
+				return filepath.Join(testutils.CurrentDir(), currentFile)
 			}
 
 			input, _ := os.ReadFile(getTestDataPath(tc.inputFile))

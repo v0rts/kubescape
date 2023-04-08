@@ -40,7 +40,7 @@ func (jp *JsonPrinter) SetWriter(ctx context.Context, outputFile string) {
 }
 
 func (jp *JsonPrinter) Score(score float32) {
-	fmt.Fprintf(os.Stderr, "\nOverall risk-score (0- Excellent, 100- All failed): %d\n", cautils.Float32ToInt(score))
+	fmt.Fprintf(os.Stderr, "\nOverall compliance-score (100- Excellent, 0- All failed): %d\n", cautils.Float32ToInt(score))
 }
 
 func (jp *JsonPrinter) ActionPrint(ctx context.Context, opaSessionObj *cautils.OPASessionObj) {
@@ -51,7 +51,7 @@ func (jp *JsonPrinter) ActionPrint(ctx context.Context, opaSessionObj *cautils.O
 
 	if _, err := jp.writer.Write(r); err != nil {
 		logger.L().Ctx(ctx).Error("failed to write results", helpers.Error(err))
-	} else {
-		printer.LogOutputFile(jp.writer.Name())
+		return
 	}
+	printer.LogOutputFile(jp.writer.Name())
 }

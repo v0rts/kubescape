@@ -55,7 +55,7 @@ func (pp *PdfPrinter) SetWriter(ctx context.Context, outputFile string) {
 }
 
 func (pp *PdfPrinter) Score(score float32) {
-	fmt.Fprintf(os.Stderr, "\nOverall risk-score (0- Excellent, 100- All failed): %d\n", cautils.Float32ToInt(score))
+	fmt.Fprintf(os.Stderr, "\nOverall compliance-score (100- Excellent, 0- All failed): %d\n", cautils.Float32ToInt(score))
 }
 func (pp *PdfPrinter) printInfo(m pdf.Maroto, summaryDetails *reportsummary.SummaryDetails, infoMap []infoStars) {
 	emptyRowCounter := 1
@@ -98,9 +98,9 @@ func (pp *PdfPrinter) ActionPrint(ctx context.Context, opaSessionObj *cautils.OP
 
 	if _, err := pp.writer.Write(outBuff.Bytes()); err != nil {
 		logger.L().Ctx(ctx).Error("failed to write results", helpers.Error(err))
-	} else {
-		printer.LogOutputFile(pp.writer.Name())
+		return
 	}
+	printer.LogOutputFile(pp.writer.Name())
 }
 
 // printHeader prints the Kubescape logo and report date
