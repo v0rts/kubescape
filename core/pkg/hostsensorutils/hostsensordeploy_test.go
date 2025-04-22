@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kubescape/kubescape/v2/internal/testutils"
+	"github.com/kubescape/kubescape/v3/internal/testutils"
 	"github.com/kubescape/opa-utils/objectsenvelopes/hostsensor"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,14 +35,14 @@ func TestHostSensorHandler(t *testing.T) {
 			})
 
 			t.Run("should return namespace", func(t *testing.T) {
-				require.Equal(t, "kubescape-host-scanner", h.GetNamespace())
+				require.Equal(t, "kubescape", h.GetNamespace())
 			})
 
 			t.Run("should collect resources from pods - happy path", func(t *testing.T) {
 				envelope, status, err := h.CollectResources(ctx)
 				require.NoError(t, err)
 
-				require.Len(t, envelope, 11*2) // has cloud provider, no control plane requested
+				require.Len(t, envelope, 9*2) // has cloud provider, no control plane requested
 				require.Len(t, status, 0)
 
 				foundControl, foundProvider := false, false
@@ -91,7 +92,7 @@ func TestHostSensorHandler(t *testing.T) {
 				envelope, status, err := h.CollectResources(ctx)
 				require.NoError(t, err)
 
-				require.Len(t, envelope, 12*2) // has empty cloud provider, has control plane info
+				require.Len(t, envelope, 10*2) // has empty cloud provider, has control plane info
 				require.Len(t, status, 0)
 
 				foundControl, foundProvider := false, false
@@ -138,37 +139,6 @@ func TestHostSensorHandler(t *testing.T) {
 				_, err := h.getVersion()
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "mock")
-			})
-		})
-
-		t.Run("should build host sensor with error in response from /kubeletConfigurations", func(t *testing.T) {
-			k8s := NewKubernetesApiMock(WithNode(mockNode1()),
-				WithPod(mockPod1()),
-				WithPod(mockPod2()),
-				WithResponses(mockResponsesNoCloudProvider()),
-				WithErrorResponse(RestURL{"http", "pod1", "7888", "/kubeletConfigurations"}), // this endpoint will return an error from this pod
-			)
-
-			h, err := NewHostSensorHandler(k8s, "")
-			require.NoError(t, err)
-			require.NotNil(t, h)
-
-			t.Run("should initialize host sensor", func(t *testing.T) {
-				require.NoError(t, h.Init(ctx))
-
-				w, err := k8s.KubernetesClient.CoreV1().Pods(h.daemonSet.Namespace).Watch(ctx, metav1.ListOptions{})
-				require.NoError(t, err)
-				w.Stop()
-
-				require.Len(t, h.hostSensorPodNames, 2)
-			})
-
-			t.Run("should collect resources from pods, with some errors", func(t *testing.T) {
-				envelope, status, err := h.CollectResources(ctx)
-				require.NoError(t, err)
-
-				require.Len(t, envelope, 12*2-1) // one resource is missing
-				require.Len(t, status, 0)        // error is not reported in status: this is due to the worker pool not bubbling up errors
 			})
 		})
 
@@ -239,4 +209,24 @@ func TestHostSensorHandler(t *testing.T) {
 	// * explicit TearDown()
 	//
 	// Notice that the package doesn't current pass tests with the race detector enabled.
+}
+
+func TestLoadHostSensorFromFile_NoError(t *testing.T) {
+	content, err := loadHostSensorFromFile("testdata/hostsensor.yaml")
+	assert.NotEqual(t, "", content)
+	assert.Nil(t, err)
+}
+
+func TestLoadHostSensorFromFile_Error(t *testing.T) {
+	content, err := loadHostSensorFromFile("testdata/hostsensor_invalid.yaml")
+	assert.Equal(t, "", content)
+	assert.NotNil(t, err)
+
+	content, err = loadHostSensorFromFile("testdata/empty_hostsensor.yaml")
+	assert.Equal(t, "", content)
+	assert.NotNil(t, err)
+
+	content, err = loadHostSensorFromFile("testdata/notAYamlFile.txt")
+	assert.Equal(t, "", content)
+	assert.NotNil(t, err)
 }

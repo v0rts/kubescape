@@ -8,13 +8,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/armosec/armoapi-go/armotypes"
-	metav1 "github.com/kubescape/kubescape/v2/core/meta/datastructures/v1"
-
-	logger "github.com/kubescape/go-logger"
+	"github.com/kubescape/go-logger"
+	metav1 "github.com/kubescape/kubescape/v3/core/meta/datastructures/v1"
 	"github.com/kubescape/opa-utils/objectsenvelopes"
 	"github.com/kubescape/opa-utils/objectsenvelopes/localworkload"
 	"github.com/kubescape/opa-utils/reporthandling"
@@ -73,19 +73,17 @@ func isSupportedScanningTarget(report *reporthandlingv2.PostureReport) error {
 }
 
 func getLocalPath(report *reporthandlingv2.PostureReport) string {
-	if report.Metadata.ScanMetadata.ScanningTarget == reporthandlingv2.GitLocal {
+
+	switch report.Metadata.ScanMetadata.ScanningTarget {
+	case reporthandlingv2.GitLocal:
 		return report.Metadata.ContextMetadata.RepoContextMetadata.LocalRootPath
-	}
-
-	if report.Metadata.ScanMetadata.ScanningTarget == reporthandlingv2.Directory {
+	case reporthandlingv2.Directory:
 		return report.Metadata.ContextMetadata.DirectoryContextMetadata.BasePath
-	}
-
-	if report.Metadata.ScanMetadata.ScanningTarget == reporthandlingv2.File {
+	case reporthandlingv2.File:
 		return filepath.Dir(report.Metadata.ContextMetadata.FileContextMetadata.FilePath)
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 func (h *FixHandler) buildResourcesMap() map[string]*reporthandling.Resource {
@@ -201,14 +199,14 @@ func (h *FixHandler) ApplyChanges(ctx context.Context, resourcesToFix []Resource
 	fileYamlExpressions := h.getFileYamlExpressions(resourcesToFix)
 
 	for filepath, yamlExpression := range fileYamlExpressions {
-		fileAsString, err := getFileString(filepath)
+		fileAsString, err := GetFileString(filepath)
 
 		if err != nil {
 			errors = append(errors, err)
 			continue
 		}
 
-		fixedYamlString, err := h.ApplyFixToContent(ctx, fileAsString, yamlExpression)
+		fixedYamlString, err := ApplyFixToContent(ctx, fileAsString, yamlExpression)
 
 		if err != nil {
 			errors = append(errors, fmt.Errorf("Failed to fix file %s: %w ", filepath, err))
@@ -242,7 +240,8 @@ func (h *FixHandler) getFilePathAndIndex(filePathWithIndex string) (filePath str
 	}
 }
 
-func (h *FixHandler) ApplyFixToContent(ctx context.Context, yamlAsString, yamlExpression string) (fixedString string, err error) {
+func ApplyFixToContent(ctx context.Context, yamlAsString, yamlExpression string) (fixedString string, err error) {
+	yamlAsString = sanitizeYaml(yamlAsString)
 	newline := determineNewlineSeparator(yamlAsString)
 
 	yamlLines := strings.Split(yamlAsString, newline)
@@ -264,6 +263,7 @@ func (h *FixHandler) ApplyFixToContent(ctx context.Context, yamlAsString, yamlEx
 	fixedYamlLines := getFixedYamlLines(yamlLines, fixInfo, newline)
 
 	fixedString = getStringFromSlice(fixedYamlLines, newline)
+	fixedString = revertSanitizeYaml(fixedString)
 
 	return fixedString, nil
 }
@@ -301,7 +301,7 @@ func (rfi *ResourceFixInfo) addYamlExpressionsFromResourceAssociatedControl(docu
 				continue
 			}
 
-			yamlExpression := fixPathToValidYamlExpression(rulePaths.FixPath.Path, rulePaths.FixPath.Value, documentIndex)
+			yamlExpression := FixPathToValidYamlExpression(rulePaths.FixPath.Path, rulePaths.FixPath.Value, documentIndex)
 			rfi.YamlExpressions[yamlExpression] = rulePaths.FixPath
 		}
 	}
@@ -313,11 +313,11 @@ func reduceYamlExpressions(resource *ResourceFixInfo) string {
 	for expr := range resource.YamlExpressions {
 		expressions = append(expressions, expr)
 	}
-
+	sort.Strings(expressions)
 	return strings.Join(expressions, " | ")
 }
 
-func fixPathToValidYamlExpression(fixPath, value string, documentIndexInYaml int) string {
+func FixPathToValidYamlExpression(fixPath, value string, documentIndexInYaml int) string {
 	isStringValue := true
 	if _, err := strconv.ParseBool(value); err == nil {
 		isStringValue = false
@@ -340,7 +340,7 @@ func joinStrings(inputStrings ...string) string {
 	return strings.Join(inputStrings, "")
 }
 
-func getFileString(filepath string) (string, error) {
+func GetFileString(filepath string) (string, error) {
 	bytes, err := os.ReadFile(filepath)
 
 	if err != nil {
@@ -367,4 +367,37 @@ func determineNewlineSeparator(contents string) string {
 	default:
 		return unixNewline
 	}
+}
+
+// sanitizeYaml receives a YAML file as a string, sanitizes it and returns the result
+//
+// Callers should remember to call the corresponding revertSanitizeYaml function.
+//
+// It applies the following sanitization:
+//
+// - Since `yaml/v3` fails to serialize documents starting with a document
+// separator, we comment it out to be compatible.
+func sanitizeYaml(fileAsString string) string {
+	if len(fileAsString) < 3 {
+		return fileAsString
+	}
+
+	if fileAsString[:3] == "---" {
+		fileAsString = "# " + fileAsString
+	}
+	return fileAsString
+}
+
+// revertSanitizeYaml receives a sanitized YAML file as a string and reverts the applied sanitization
+//
+// For sanitization details, refer to the sanitizeYaml() function.
+func revertSanitizeYaml(fixedYamlString string) string {
+	if len(fixedYamlString) < 3 {
+		return fixedYamlString
+	}
+
+	if fixedYamlString[:5] == "# ---" {
+		fixedYamlString = fixedYamlString[2:]
+	}
+	return fixedYamlString
 }

@@ -3,43 +3,41 @@ package getter
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestParseHost(t *testing.T) {
-	t.Parallel()
+// should return true if the string is present in the slice
+func TestContains(t *testing.T) {
+	tests := []struct {
+		str  []string
+		key  string
+		want bool
+	}{
+		{
+			str:  []string{"apple", "banana", "orange"},
+			key:  "banana",
+			want: true,
+		},
+		{
+			str:  []string{"apple", "banana", "orange"},
+			key:  "mango",
+			want: false,
+		},
+		{
+			str:  []string{"", "banana", "banana"},
+			key:  "banana",
+			want: true,
+		},
+		{
+			str:  []string{"", "", ""},
+			key:  "grape",
+			want: false,
+		},
+	}
 
-	t.Run("should recognize http scheme", func(t *testing.T) {
-		t.Parallel()
-
-		const input = "http://localhost:7555"
-		scheme, host := parseHost(input)
-		require.Equal(t, "http", scheme)
-		require.Equal(t, "localhost:7555", host)
-	})
-
-	t.Run("should recognize https scheme", func(t *testing.T) {
-		t.Parallel()
-
-		const input = "https://localhost:7555"
-		scheme, host := parseHost(input)
-		require.Equal(t, "https", scheme)
-		require.Equal(t, "localhost:7555", host)
-	})
-
-	t.Run("should adopt https scheme by default", func(t *testing.T) {
-		t.Parallel()
-
-		const input = "portal-dev.armo.cloud"
-		scheme, host := parseHost(input)
-		require.Equal(t, "https", scheme)
-		require.Equal(t, "portal-dev.armo.cloud", host)
-	})
-}
-
-func TestIsNativeFramework(t *testing.T) {
-	t.Parallel()
-
-	require.Truef(t, isNativeFramework("nSa"), "expected nsa to be native (case insensitive)")
-	require.Falsef(t, isNativeFramework("foo"), "expected framework to be custom")
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			assert.Equal(t, tt.want, contains(tt.str, tt.key))
+		})
+	}
 }

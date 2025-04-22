@@ -9,13 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	logger "github.com/kubescape/go-logger"
-	"github.com/kubescape/go-logger/helpers"
+	"github.com/kubescape/go-logger"
 	"github.com/kubescape/k8s-interface/k8sinterface"
 	"github.com/kubescape/opa-utils/objectsenvelopes/hostsensor"
 	"github.com/kubescape/opa-utils/reporthandling/apis"
-
-	"sigs.k8s.io/yaml"
 )
 
 // getPodList clones the internal list of pods being watched as a map of pod names.
@@ -87,12 +84,17 @@ func (hsh *HostSensorHandler) sendAllPodsHTTPGETRequest(ctx context.Context, pat
 	podList := hsh.getPodList()
 	res := make([]hostsensor.HostSensorDataEnvelope, 0, len(podList))
 	var wg sync.WaitGroup
+
 	// initialization of the channels
 	hsh.workerPool.init(len(podList))
 
+	// log is used to avoid log duplication
+	// coming from the different host-scanner instances
+	log := NewLogCoupling()
+
 	hsh.workerPool.hostSensorApplyJobs(podList, path, requestKind)
 	hsh.workerPool.hostSensorGetResults(&res)
-	hsh.workerPool.createWorkerPool(ctx, hsh, &wg)
+	hsh.workerPool.createWorkerPool(ctx, hsh, &wg, log)
 	hsh.workerPool.waitForDone(&wg)
 
 	return res, nil
@@ -153,7 +155,7 @@ func (hsh *HostSensorHandler) getKubeProxyInfo(ctx context.Context) ([]hostsenso
 	return hsh.sendAllPodsHTTPGETRequest(ctx, "/kubeProxyInfo", KubeProxyInfo)
 }
 
-// getControlPlanInfo returns the list of controlPlaneInfo metadata
+// getControlPlaneInfo returns the list of controlPlaneInfo metadata
 func (hsh *HostSensorHandler) getControlPlaneInfo(ctx context.Context) ([]hostsensor.HostSensorDataEnvelope, error) {
 	// loop over pods and port-forward it to each of them
 	return hsh.sendAllPodsHTTPGETRequest(ctx, "/controlPlaneInfo", ControlPlaneInfo)
@@ -163,27 +165,6 @@ func (hsh *HostSensorHandler) getControlPlaneInfo(ctx context.Context) ([]hostse
 func (hsh *HostSensorHandler) getCloudProviderInfo(ctx context.Context) ([]hostsensor.HostSensorDataEnvelope, error) {
 	// loop over pods and port-forward it to each of them
 	return hsh.sendAllPodsHTTPGETRequest(ctx, "/cloudProviderInfo", CloudProviderInfo)
-}
-
-// getKubeletCommandLine returns the list of kubelet command lines.
-func (hsh *HostSensorHandler) getKubeletCommandLine(ctx context.Context) ([]hostsensor.HostSensorDataEnvelope, error) {
-	// loop over pods and port-forward it to each of them
-	resps, err := hsh.sendAllPodsHTTPGETRequest(ctx, "/kubeletCommandLine", KubeletCommandLine)
-	if err != nil {
-		return resps, err
-	}
-
-	for resp := range resps {
-		var data = make(map[string]interface{})
-		data["fullCommand"] = string(resps[resp].Data)
-		resBytesMarshal, err := json.Marshal(data)
-		// TODO catch error
-		if err == nil {
-			resps[resp].Data = stdjson.RawMessage(resBytesMarshal)
-		}
-	}
-
-	return resps, nil
 }
 
 // getCNIInfo returns the list of CNI metadata
@@ -202,22 +183,6 @@ func (hsh *HostSensorHandler) getKernelVersion(ctx context.Context) ([]hostsenso
 func (hsh *HostSensorHandler) getOsReleaseFile(ctx context.Context) ([]hostsensor.HostSensorDataEnvelope, error) {
 	// loop over pods and port-forward it to each of them
 	return hsh.sendAllPodsHTTPGETRequest(ctx, "/osRelease", "OsReleaseFile")
-}
-
-// getKubeletConfigurations returns the list of kubelet configurations.
-func (hsh *HostSensorHandler) getKubeletConfigurations(ctx context.Context) ([]hostsensor.HostSensorDataEnvelope, error) {
-	// loop over pods and port-forward it to each of them
-	res, err := hsh.sendAllPodsHTTPGETRequest(ctx, "/kubeletConfigurations", "KubeletConfiguration") // empty kind, will be overridden
-	for resIdx := range res {
-		jsonBytes, ery := yaml.YAMLToJSON(res[resIdx].Data)
-		if ery != nil {
-			logger.L().Ctx(ctx).Warning("failed to convert kubelet configurations from yaml to json", helpers.Error(ery))
-			continue
-		}
-		res[resIdx].SetData(jsonBytes)
-	}
-
-	return res, err
 }
 
 // hasCloudProviderInfo iterates over the []hostsensor.HostSensorDataEnvelope list to find info about the cloud provider.
@@ -259,14 +224,6 @@ func (hsh *HostSensorHandler) CollectResources(ctx context.Context) ([]hostsenso
 		Query    func(context.Context) ([]hostsensor.HostSensorDataEnvelope, error)
 	}{
 		// queries to the deployed host-scanner
-		{
-			Resource: KubeletConfiguration,
-			Query:    hsh.getKubeletConfigurations,
-		},
-		{
-			Resource: KubeletCommandLine,
-			Query:    hsh.getKubeletCommandLine,
-		},
 		{
 			Resource: OsReleaseFile,
 			Query:    hsh.getOsReleaseFile,
